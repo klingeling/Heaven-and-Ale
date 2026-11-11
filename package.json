@@ -1,0 +1,26 @@
+{
+  "name": "heaven-and-ale-online",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "server": "tsx server.ts",
+    "preview": "vite preview",
+    "check:bot": "tsx scripts/check-bot-economy.ts"
+  },
+  "dependencies": {
+    "boardgame.io": "^0.50.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.19.2",
+    "typescript": "~5.6.3",
+    "vite": "^6.0.1"
+  }
+}

@@ -23,7 +23,7 @@ export type AleState = {
 };
 
 export const resources: Resource[] = ['wood', 'yeast', 'hops', 'water', 'barley'];
-export const resourceLabels: Record<Resource, string> = { wood: '木材', yeast: '酵母', hops: '啤酒花', water: '水', barley: '大麦' };
+export const resourceLabels: Record<Resource, string> = { wood: '木头', yeast: '酵母', hops: '啤酒花', water: '水', barley: '大麦' };
 export const resourceColors: Record<Resource, string> = { wood: '#725044', yeast: '#f1f2ef', hops: '#9fca7c', water: '#4d82c4', barley: '#f0cf70' };
 // Shared production track on the player board, transcribed from TTSMOD's
 // Punkteleiste snap points. Values run from -9 up the left edge to 0, then
@@ -89,13 +89,13 @@ export function canScore(p: PlayerState, scoreType: ActionSpace['scoreType']) {
 // Individual garden snap points from TTSMOD; retaining each real Z value avoids
 // row-level averaging that caused the outer hexes to drift off their artwork.
 const gardenRows: { sites: { x: number; z: number; side: 'sun' | 'shade' | 'hut' }[] }[] = [
-  { sites: [{ x: 0.277, z: -2.854, side: 'sun' }, { x: -1.458, z: -2.871, side: 'shade' }] },
-  { sites: [{ x: 1.138, z: -1.356, side: 'sun' }, { x: -0.602, z: -1.351, side: 'hut' }, { x: -2.344, z: -1.354, side: 'shade' }] },
-  { sites: [{ x: 3.781, z: 0.184, side: 'sun' }, { x: 2.018, z: 0.167, side: 'sun' }, { x: 0.255, z: 0.157, side: 'sun' }, { x: -1.477, z: 0.167, side: 'shade' }, { x: -3.252, z: 0.170, side: 'shade' }, { x: -5.014, z: 0.160, side: 'shade' }] },
-  { sites: [{ x: 4.675, z: 1.702, side: 'sun' }, { x: 2.88, z: 1.71029294, side: 'hut' }, { x: 1.136, z: 1.690, side: 'sun' }, { x: -0.6002729, z: 1.69162893, side: 'hut' }, { x: -2.359, z: 1.673, side: 'shade' }, { x: -4.11865664, z: 1.6933217, side: 'hut' }, { x: -5.910, z: 1.694, side: 'shade' }] },
-  { sites: [{ x: 3.792, z: 3.242, side: 'sun' }, { x: 2.012, z: 3.234, side: 'sun' }, { x: 0.257, z: 3.222, side: 'sun' }, { x: -1.486, z: 3.216, side: 'shade' }, { x: -3.251, z: 3.207, side: 'shade' }, { x: -5.043, z: 3.215, side: 'shade' }] },
-  { sites: [{ x: 4.696, z: 4.789, side: 'sun' }, { x: 2.9, z: 4.77, side: 'hut' }, { x: 1.132, z: 4.767, side: 'sun' }, { x: -0.6, z: 4.77, side: 'hut' }, { x: -2.374, z: 4.758, side: 'shade' }, { x: -4.14, z: 4.77, side: 'hut' }, { x: -5.934, z: 4.75, side: 'shade' }] },
-  { sites: [{ x: 3.795, z: 6.348, side: 'sun' }, { x: 2.024, z: 6.322, side: 'sun' }, { x: 0.254, z: 6.317, side: 'sun' }, { x: -1.505, z: 6.301, side: 'shade' }, { x: -3.286, z: 6.314, side: 'shade' }, { x: -5.067, z: 6.319, side: 'shade' }] },
+  { sites: [{ x: 0.230, z: -2.860, side: 'sun' }, { x: -1.520, z: -2.854, side: 'shade' }] },
+  { sites: [{ x: 1.100, z: -1.350, side: 'sun' }, { x: -0.650, z: -1.350, side: 'hut' }, { x: -2.390, z: -1.350, side: 'shade' }] },
+  { sites: [{ x: 3.740, z: 0.180, side: 'sun' }, { x: 1.970, z: 0.170, side: 'sun' }, { x: 0.220, z: 0.160, side: 'sun' }, { x: -1.520, z: 0.160, side: 'shade' }, { x: -3.300, z: 0.160, side: 'shade' }, { x: -5.070, z: 0.160, side: 'shade' }] },
+  { sites: [{ x: 4.620, z: 1.690, side: 'sun' }, { x: 2.870, z: 1.690, side: 'hut' }, { x: 1.090, z: 1.670, side: 'sun' }, { x: -0.650, z: 1.670, side: 'hut' }, { x: -2.390, z: 1.670, side: 'shade' }, { x: -4.190, z: 1.670, side: 'hut' }, { x: -5.940, z: 1.690, side: 'shade' }] },
+  { sites: [{ x: 3.740, z: 3.210, side: 'sun' }, { x: 1.980, z: 3.200, side: 'sun' }, { x: 0.225, z: 3.200, side: 'sun' }, { x: -1.520, z: 3.200, side: 'shade' }, { x: -3.300, z: 3.200, side: 'shade' }, { x: -5.060, z: 3.210, side: 'shade' }] },
+  { sites: [{ x: 4.650, z: 4.760, side: 'sun' }, { x: 2.870, z: 4.760, side: 'hut' }, { x: 1.090, z: 4.730, side: 'sun' }, { x: -0.650, z: 4.730, side: 'hut' }, { x: -2.410, z: 4.730, side: 'shade' }, { x: -4.190, z: 4.730, side: 'hut' }, { x: -5.940, z: 4.730, side: 'shade' }] },
+  { sites: [{ x: 3.755, z: 6.290, side: 'sun' }, { x: 1.980, z: 6.290, side: 'sun' }, { x: 0.220, z: 6.290, side: 'sun' }, { x: -1.540, z: 6.270, side: 'shade' }, { x: -3.320, z: 6.270, side: 'shade' }, { x: -5.080, z: 6.270, side: 'shade' }] },
 ];
 export const gardenCells = gardenRows.flatMap((row, rowIndex) => row.sites.map((site, col) => ({
   row: rowIndex, col, x: site.x, z: site.z, hut: site.side === 'hut', side: site.side === 'hut' ? undefined : site.side,
@@ -112,8 +112,8 @@ const scoresOnRoute = scorePoints.map(([x,y], sourceIndex) => ({ type: 'score' a
 const barrelB = { type: 'barrel' as const, label: '酒桶', ...point(140, 605) };
 const barrelC = { type: 'barrel' as const, label: '酒桶', ...point(1745, 930) };
 export const barrelTokenPositions = [
-  [531, 402], [706, 402], [876, 402], [1045, 402], [1212, 402], [1383, 402],
-  [531, 784], [706, 784], [876, 784], [1045, 784], [1212, 784], [1383, 784],
+  [531, 402], [706, 402], [876, 402], [1045, 402], [1212, 402], [1381, 402],
+  [531, 784], [706, 784], [876, 784], [1045, 784], [1212, 784], [1381, 784],
 ].map(([x, y]) => ({ left: x / 1904 * 100, top: y / 1176 * 100 }));
 export const startSlots = [
   { label: '首位玩家', reward: '无奖励', ...point(205, 151) },
@@ -127,7 +127,7 @@ const route = [
 ];
 const track: ActionSpace[] = [...route, { type: 'start', label: '回到起点', ...point(260, 326) }];
 const emptyPlayer = (id: number, color: string): PlayerState => ({
-  name: `修道院 ${id + 1}`, color, coins: 25, board: gardenCells.map(c => ({ hut: c.hut, side: c.side })), position: -1, startSlot: null, retired: false,
+  name: `玩家${id + 1}`, color, coins: 25, board: gardenCells.map(c => ({ hut: c.hut, side: c.side })), position: -1, startSlot: null, retired: false,
   brewer: -9, tracks: { wood: 1, yeast: -2, hops: -4, water: -6, barley: -8 },
   scores: { monk: [false, false, false, false], resource: [null, null, null, null, null] }, privileges: ['A', 'B', 'C', 'D', 'E'], privilegePairs: [null, null, null, null, null], claimedBarrels: [],
 });

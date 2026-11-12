@@ -1,0 +1,95 @@
+/* Keep titles unchanged; raise supporting and body copy for readability. */
+.topbar>div:nth-child(2){font-size:12px}
+.online-status,.room-message,.text-button,.feature-row{font-size:12px}
+.hero-copy{font-size:15px}
+.card-kicker,.setup-card label,.setup-card p,.setup-card input,.setup-card select,.btn{font-size:13px}
+.setup-card .bot-seat-toggle{font-size:12px}
+.setup-card .bot-seat-name{font-size:12px}
+.bot-seat-toolbar{font-size:12px}
+.bot-seat-toolbar button,.bot-seat-options button{font-size:10px}
+.room-message{line-height:1.7}
+.table-title small{font-size:11px}
+.round-chip,.icon-btn{font-size:12px}
+.rail-heading{font-size:12px}
+.player-name{font-size:13px}
+.player-name small{font-size:11px}
+.money{font-size:13px}
+.mini-track{font-size:11px}
+.mini-track b{font-size:12px}
+.brewer-stat{font-size:12px}
+.brewer-stat b{font-size:14px}
+.log-list p,.far-right-rail .log-list p{font-size:11px;line-height:1.75}
+.board-tip,.move-hint,.cost-note,.panel-desc,.selection-hint,.click-hint{font-size:11px}
+.board-heading .eyebrow,.garden-heading .eyebrow,.eyebrow{font-size:11px}
+.empty-action p{font-size:12px;line-height:1.7}
+.shop-tile b,.score-picker button,.score-discs,.score-summary{font-size:11px}
+.shop-tile small,.placement-tools label,.placement-tools select,.side-switch button,.shop-buy-list button,.goal-grid label{font-size:10px}
+.garden-legend,.inspection-hint{font-size:10px}
+.brewer-card span,.brewer-card small{font-size:10px}
+.resource-meta>div:first-child{font-size:11px}
+.privilege span,.privileges .privilege button,.privileges .privilege>span{font-size:9px}
+.barrel-strip small,.barrel-claimed-item small{font-size:10px}
+.score-summary b{font-size:12px}
+.action-confirm-bar,.action-confirm-bar .btn{font-size:11px}
+.game-over-banner{font-size:12px}
+.summary-title,.resource-summary table{font-size:11px}
+.resource-summary td{font-size:12px}
+.far-right-rail .player-name{font-size:14px}
+.far-right-rail .player-name small{font-size:11px}
+.far-right-rail .money{font-size:13px}
+.far-right-rail .player-resource-track span{font-size:10px}
+.far-right-rail .player-resource-track b{font-size:11px}
+.far-right-rail .player-live-metrics small{font-size:10px}
+.far-right-rail .player-live-metrics b{font-size:12px}
+.far-right-rail .player-live-metrics .live-total b{font-size:14px}
+.flow-step{font-size:11px}
+.privilege-pick-list button{font-size:10px}
+.privilege-pick-list .skip-privilege small{font-size:9px}
+.finish-purchase{font-size:11px}
+.start-slot-caption{font-size:clamp(8px,.7vw,11px)}
+.start-slot-caption small{font-size:clamp(7px,.6vw,10px)}
+.start-guide p,.shed-choice-panel p,.shed-choice-status{font-size:11px}
+.bot-thinking-pill{font-size:12px}
+.log-list p.log-turn-divider{font-size:12px}
+.rules-modal p,.rules-modal li{font-size:13px}
+.rules-modal .fine-print{font-size:12px}
+.track-space small{font-size:clamp(8px,.68vw,11px)}
+.barrel-claim-badge{font-size:10px}
+.player-live-details{padding:5px 7px 7px}
+.player-info-table{display:grid;width:100%;grid-template-rows:auto auto}
+.player-info-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));width:100%}
+.player-info-row>span{min-width:0;display:flex;align-items:center;justify-content:center;gap:2px;border:1px solid #ffffff18;margin-right:-1px;margin-bottom:-1px;padding:2px 1px;white-space:nowrap}
+.resource-icon-row>span{height:36px;background:#1b2822}
+.resource-stat{position:static}
+.player-board-resource{display:block;flex:none;width:22px;height:29px;object-fit:contain;filter:drop-shadow(0 1px 2px #0008)}
+.resource-stat>b{position:static;min-width:0;height:auto;padding:0;border-radius:0;background:none;color:#fff3d6;font-size:9px;line-height:1;text-align:left;box-shadow:none}
+.player-metric-combined-row>span{height:30px;background:#1e2b25;color:#eee0bf;font-size:10px;font-weight:700}
+.player-metric-combined-row b{font-size:9px;line-height:1}
+.player-info-brewer{display:block;width:18px;height:24px;background-image:url('/Images/brewer_tokens.png');background-size:700% 100%;background-repeat:no-repeat}
+.player-info-beer,.player-info-barrel,.player-coin-icon{display:block;background-repeat:no-repeat;flex:none}
+.player-info-beer{width:20px;height:24px;background-image:url('/Images/player-stat-icons.png');background-size:300% 100%;background-position:50% center}
+.player-info-barrel{width:18px;height:24px;background-image:url('/Images/player-stat-icons.png');background-size:300% 100%;background-position:left center}
+.player-coin-icon{width:15px;height:15px;background-image:url('/Images/player-stat-icons.png');background-size:300% 100%;background-position:right center}
+.exchange-ratio-value{color:#eee0bf}
+.base-value{color:#eee0bf}
+.player-name-score{display:flex;align-items:baseline;gap:8px;white-space:nowrap}
+.player-name-score>b{color:#f1d48f;font-size:11px;line-height:1}
+.far-right-rail .money{display:flex;align-items:center;gap:4px}
+.score-summary b{display:flex;align-items:center;gap:4px}
+
+@media(max-width:780px){
+  .topbar>div:nth-child(2),.online-status{font-size:11px}
+  .hero-copy{font-size:14px}
+  .setup-card p{font-size:12px}
+  .setup-card label,.setup-card input,.setup-card select,.btn{font-size:12px}
+  .round-chip,.icon-btn{font-size:11px}
+  .track-space small{font-size:8px}
+  .garden-legend{font-size:9px}
+}
+@media(max-width:440px){
+  .hero-copy{font-size:13px}
+  .setup-card p{font-size:12px}
+  .table-title small{font-size:10px}
+  .round-chip,.icon-btn{font-size:10px}
+  .track-space small{font-size:7px}
+}

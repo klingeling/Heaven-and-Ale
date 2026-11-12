@@ -7,3 +7,9 @@
 .bot-setup{display:grid;grid-template-columns:1fr 1fr;gap:10px}.bot-setup label{margin-top:0}.bot-thinking-shield{position:absolute;inset:0;z-index:6;display:grid;place-content:center;gap:10px;text-align:center;background:#101a15b8;backdrop-filter:blur(2px);color:#f1ddb0;font-family:var(--serif);font-size:16px;letter-spacing:.04em;border:1px solid #d2b76c66}.center-play{position:relative}.bot-thinking-dot{width:12px;height:12px;margin:auto;border-radius:50%;background:#dfbd68;box-shadow:0 0 16px #dfbd68;animation:bot-pulse .8s infinite alternate}@keyframes bot-pulse{to{opacity:.35;transform:scale(.72)}}
 .game-layout{position:relative}
 .bot-toggle{display:flex!important;align-items:center;gap:9px;margin:15px 0!important;font-size:12px!important}.setup-card .bot-toggle input{display:inline-block;width:16px;height:16px;margin:0;accent-color:#d3ae68}.bot-names{grid-column:1/-1;display:grid;grid-template-columns:1fr;gap:2px}
+.resume-local{width:100%;margin:0 0 7px;color:#f2ddb0}
+.brand-mark{overflow:hidden;border-radius:9px;flex:none}.brand-mark img{display:block;width:100%;height:100%;object-fit:cover}.brand-mark.small{border-radius:7px}
+.abandon-btn{border-color:#8a554d;color:#e5a99c}.abandon-btn:hover{border-color:#d77a6c;background:#482e2a;color:#ffd0c2}
+.confirm-modal{width:min(100%,430px)}.confirm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.confirm-actions .btn{width:120px;height:36px;margin:0;padding:0 12px;display:inline-flex;align-items:center;justify-content:center}.btn-danger{border-color:#a55c4f;background:#86483d;color:#fff0e7}.btn-danger:hover{background:#a65345;color:#fff}
+.modal-backdrop{z-index:1000}
+.game-layout{isolation:isolate;z-index:0}

@@ -93,3 +93,28 @@
   .round-chip,.icon-btn{font-size:10px}
   .track-space small{font-size:7px}
 }
+
+/* Keep the landing artwork anchored to the viewport while seat options expand or collapse. */
+.landing-image{position:fixed}
+
+
+/* Compact the landing page so its setup fits closer to the first viewport. */
+.topbar{height:70px}
+.hero{padding:30px 0 36px}
+.hero h1{font-size:clamp(48px,6.4vw,78px);margin:8px 0 2px}
+.hero-sub{font-size:18px;margin-bottom:10px}
+.hero-copy{line-height:1.7;margin-bottom:20px}
+.setup-grid{gap:12px}
+.setup-card{padding:18px 20px 16px}
+.setup-card h2{margin:6px 0 5px}
+.setup-card p{min-height:30px;margin-bottom:10px}
+.setup-card label{margin-top:8px}
+.setup-card input,.setup-card select{height:34px}
+.btn-gold{height:36px;margin-top:11px}
+.bot-seat-toolbar{margin-top:9px}
+.bot-seat-list{gap:4px;margin:5px 0 7px}
+.bot-seat-row{padding:5px 7px}
+.setup-card .bot-seat-name{height:28px}
+.feature-row{margin-top:16px}
+@media(max-width:780px){.topbar{height:62px}.hero{padding:24px 0 34px}.hero h1{font-size:clamp(44px,12vw,54px)}.hero-copy{margin-bottom:18px}.setup-grid{gap:10px}.setup-card{padding:16px}.feature-row{margin-top:14px}}
+

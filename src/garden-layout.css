@@ -122,9 +122,10 @@
 .resource-summary th{font-weight:500;color:#bcb7a7}
 .resource-summary tbody th{color:#a9a697}
 .resource-summary td{font-weight:700;color:#f0e3c5;font-size:10px}
-.action-confirm-bar{display:flex;align-items:center;justify-content:flex-end;gap:7px;padding:8px 12px;border-top:1px solid #ffffff17;background:#18251f;color:#c8c1ad;font-size:9px}
+.action-confirm-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:7px;padding:8px 12px;border-top:1px solid #ffffff17;background:#18251f;color:#c8c1ad;font-size:9px}
 .action-confirm-bar>span{margin-right:auto}
 .action-confirm-bar .btn{height:31px;margin:0;padding:0 13px;font-size:9px}
+@media(max-width:780px){.action-confirm-bar>span{flex:1 0 100%;margin:0}.action-confirm-bar .btn{flex:1 1 28%;padding:0 5px;white-space:nowrap}}
 .btn-undo{border-color:#877650;background:transparent;color:#e4d6b4}
 .btn-undo:hover{background:#554831}
 .btn-confirm{width:auto}

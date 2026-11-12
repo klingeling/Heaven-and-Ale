@@ -1,7 +1,7 @@
 import type { Game } from 'boardgame.io';
 
 export type Resource = 'wood' | 'yeast' | 'hops' | 'water' | 'barley';
-export type Tile = { id: string; kind: 'resource' | 'monk'; value: number; resource?: Resource; monk?: string };
+export type Tile = { id: string; kind: 'resource' | 'monk'; value: number; tier?: 'I' | 'II'; resource?: Resource; monk?: string };
 export type Cell = { hut?: boolean; tile?: Tile; side?: 'sun' | 'shade'; completed?: boolean; shedType?: number; shedValue?: number };
 export type PlayerState = {
   name: string; color: string; coins: number; board: Cell[]; position: number; startSlot: number | null; retired: boolean;
@@ -17,7 +17,7 @@ export type AleState = {
   resourceDecks: Tile[][]; monkDecks: Tile[][]; scores: number[]; barrels: { id: number; remaining: number }[]; phase: 'setup' | 'play' | 'finished';
   pending: { space: number; type: ActionSpace['type']; player: string; purchases?: number } | null; log: string[];
   startPlayer: number; firstTurnAfterSetup: boolean; startChoice: { player: string; slot: number; mode: 'setup' | 'return' } | null;
-  undoSnapshot: string | null; confirmationKind: 'setup' | 'turn' | 'return' | 'free' | null;
+  undoSnapshot: string | null; stepUndoSnapshots?: string[]; confirmationKind: 'setup' | 'turn' | 'return' | 'free' | null;
   shedChoices: ShedChoice[]; privilegePrompts: PrivilegePrompt[];
   logCycle?: { round: number; turn: number; players: number[] };
 };
@@ -65,7 +65,7 @@ export function playerBoardPercent(x: number, z: number) {
   return { left: ((764.95 - 91.91 * x) / 1523) * 100, top: ((756.18 + 92.42 * z) / 1523) * 100 };
 }
 export const playerColors = ['green', 'red', 'blue', 'yellow'];
-const monkNames = ['修士', '酿酒师', '园丁', '院长'];
+const monkNames = ['僧侣A', '僧侣B', '僧侣C', '僧侣D'];
 export { monkNames };
 
 export function scoreChoices(p: PlayerState, category: 'A' | 'B' | 'C') {
@@ -132,13 +132,28 @@ const emptyPlayer = (id: number, color: string): PlayerState => ({
   scores: { monk: [false, false, false, false], resource: [null, null, null, null, null] }, privileges: ['A', 'B', 'C', 'D', 'E'], privilegePairs: [null, null, null, null, null], claimedBarrels: [],
 });
 const makeDeck = (G: AleState, random: { Shuffle<T>(items: T[]): T[] }, rounds: number) => {
-  const resourceTiles: Tile[] = [];
-  for (const resource of resources) for (let value = 1; value <= 5; value++) for (let n = 0; n < 4; n++) resourceTiles.push({ id: `${resource}-${value}-${n}`, kind: 'resource', value, resource });
-  const shuffledResources = random.Shuffle(resourceTiles);
-  G.resourceDecks = Array.from({ length: rounds }, (_, i) => shuffledResources.slice(i * 15, i * 15 + 15));
-  const monkTiles: Tile[] = Array.from({ length: rounds * 4 }, (_, i) => ({ id: `monk-${i}`, kind: 'monk', value: 1 + (i % 5), monk: monkNames[i % monkNames.length] }));
-  const shuffledMonks = random.Shuffle(monkTiles);
-  G.monkDecks = Array.from({ length: rounds }, (_, i) => shuffledMonks.slice(i * 4, i * 4 + 4));
+  const resourceTiles = (tier: 'I' | 'II'): Tile[] => {
+    const tiles: Tile[] = [];
+    for (const resource of resources) for (let value = 1; value <= 5; value++) for (let copy = 0; copy < 2; copy++) {
+      tiles.push({ id: `${resource}-${value}-${tier}-${copy + 1}`, kind: 'resource', value, resource, tier });
+    }
+    return tiles;
+  };
+  // The physical game has two 50-tile resource stacks. Shuffle each tier
+  // separately, then exhaust I before drawing from II.
+  const orderedResources = [...random.Shuffle(resourceTiles('I')), ...random.Shuffle(resourceTiles('II'))];
+  const resourcesForGame = orderedResources.slice(0, rounds * 15);
+  G.resourceDecks = Array.from({ length: rounds }, (_, i) => resourcesForGame.slice(i * 15, i * 15 + 15));
+
+  const monkTiles = (tier: 'I' | 'II'): Tile[] => monkNames.flatMap((monk, monkIndex) =>
+    Array.from({ length: 3 }, (_, copy) => ({ id: `monk-${tier}-${monkIndex}-${copy + 1}`, kind: 'monk' as const, value: 1 + ((monkIndex * 3 + copy) % 5), monk, tier }))
+  );
+  // There are 12 tiles in each monk tier (3 of each type). Two-player games
+  // stop after I; three-player games use one II batch; four-player games use
+  // all of II after the first three rounds.
+  const orderedMonks = [...random.Shuffle(monkTiles('I')), ...random.Shuffle(monkTiles('II'))];
+  const monksForGame = orderedMonks.slice(0, rounds * 4);
+  G.monkDecks = Array.from({ length: rounds }, (_, i) => monksForGame.slice(i * 4, i * 4 + 4));
   G.resources = Array.from({ length: 15 }, (_, i) => [G.resourceDecks[0][i]]);
   G.monks = Array.from({ length: 4 }, (_, i) => [G.monkDecks[0][i]]);
 };
@@ -152,7 +167,7 @@ export const HeavenAle: Game<AleState> = {
     const G: AleState = { players, round: 1,
       maxRounds: count === 2 ? 3 : count === 3 ? 4 : 6, track, resources: [], monks: [], resourceDecks: [], monkDecks: [], scores: [1, 1, 1, 1, 1, 1],
       barrels: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, remaining: 2 })), phase: 'setup', pending: null, log: ['首位玩家已放在起始玩家格；其他玩家逆时针选择起始奖励。'],
-      startPlayer: 0, firstTurnAfterSetup: false, startChoice: null, undoSnapshot: null, confirmationKind: null, shedChoices: [], privilegePrompts: [] };
+      startPlayer: 0, firstTurnAfterSetup: false, startChoice: null, undoSnapshot: null, stepUndoSnapshots: [], confirmationKind: null, shedChoices: [], privilegePrompts: [] };
     makeDeck(G, random, G.maxRounds);
     return G;
   },
@@ -195,6 +210,7 @@ export const HeavenAle: Game<AleState> = {
         if (lastToReturn && G.players.every(p => p === player || p.retired) && !G.players.some(p => p.startSlot === 0) && slot !== 0) return;
       }
       saveActionSnapshot(G);
+      saveStepSnapshot(G);
       if (slot === 3) { G.startChoice = { player: ctx.currentPlayer, slot, mode }; return; }
       finalizeStartChoice(G, player, slot, undefined, mode);
       if (mode === 'setup') {
@@ -207,6 +223,7 @@ export const HeavenAle: Game<AleState> = {
     chooseStartResource: ({ G, ctx }, resource: Resource) => {
       const choice = G.startChoice, player = G.players[Number(ctx.currentPlayer)];
       if (!choice || choice.player !== ctx.currentPlayer || !player || G.confirmationKind || !resources.includes(resource)) return;
+      saveStepSnapshot(G);
       finalizeStartChoice(G, player, choice.slot, resource, choice.mode);
       G.startChoice = null;
       if (choice.mode === 'setup') {
@@ -222,10 +239,12 @@ export const HeavenAle: Game<AleState> = {
       const space = G.track[index];
       if (space.type === 'start') {
         saveActionSnapshot(G);
+        saveStepSnapshot(G);
         player.position = index; player.startSlot = null; G.pending = { space: index, type: 'start', player: ctx.currentPlayer };
         return;
       }
       saveActionSnapshot(G);
+      saveStepSnapshot(G);
       player.startSlot = null; player.position = index;
       if (space.type === 'barrel') {
         const claimed = awardBarrels(G, player);
@@ -244,9 +263,10 @@ export const HeavenAle: Game<AleState> = {
       if (tileIndex < 0 || !cell || cell.hut || cell.tile || !side) return;
       const tile = market[tileIndex], baseCost = tileBaseCost(tile, space.sourceIndex), cost = baseCost * (side === 'sun' ? 2 : 1);
       if (p.coins < cost) return;
+      saveStepSnapshot(G);
       p.coins -= cost; cell.tile = tile; cell.side = side; market.splice(tileIndex, 1);
       pending.purchases = (pending.purchases ?? 0) + 1;
-      G.log.unshift(`${p.name} 在第 ${pending.space + 1} 格「${space.label}」购买${tile.kind === 'resource' ? resourceLabels[tile.resource!] : monkIconToken(tile.monk)}板块，花费 ${cost}。`);
+      G.log.unshift(`${p.name} 在第${pending.space + 1}格「${space.label}」购买${tile.kind === 'resource' ? resourceLabels[tile.resource!] : monkIconToken(tile.monk)}板块，花费 ${cost}。`);
       settleHuts(G, p);
       // Stay on the action space so the player may buy more tiles from this
       // supply. Any resulting shed choice is resolved before buying again.
@@ -256,6 +276,7 @@ export const HeavenAle: Game<AleState> = {
     finishPurchase: ({ G, ctx }) => {
       const pending = G.pending;
       if (G.confirmationKind || G.shedChoices.length || !pending || pending.player !== ctx.currentPlayer || !['resource', 'monk'].includes(pending.type) || (pending.purchases ?? 0) < 1) return;
+      saveStepSnapshot(G);
       G.pending = null;
       G.confirmationKind = 'turn';
     },
@@ -264,6 +285,7 @@ export const HeavenAle: Game<AleState> = {
       if (G.confirmationKind || !pending || pending.player !== ctx.currentPlayer || pending.type !== 'score') return;
       const space = G.track[pending.space], markerIndex = space.sourceIndex ?? -1;
       if (G.scores[markerIndex] <= 0 || !['A', 'B', 'C'].includes(category) || (space.scoreType !== 'ABC' && space.scoreType !== category) || !scoreChoices(p, category).some(value => String(value) === String(option))) return;
+      saveStepSnapshot(G);
       const choice = category;
       const rewards: string[] = [];
       if (choice === 'A') {
@@ -301,6 +323,7 @@ export const HeavenAle: Game<AleState> = {
     toggleShedChoice: ({ G, ctx }, cellIndex: number) => {
       const choice = G.shedChoices[0], player = G.players[Number(ctx.currentPlayer)];
       if (!choice || !player || G.confirmationKind || !canSelectShedCell(choice, cellIndex)) return;
+      saveStepSnapshot(G);
       const selectedAt = choice.selected.indexOf(cellIndex);
       if (selectedAt >= 0 && choice.mode === 'opposite') choice.selected = [];
       else if (selectedAt >= 0) choice.selected.splice(selectedAt, 1);
@@ -312,6 +335,7 @@ export const HeavenAle: Game<AleState> = {
     completeShedChoice: ({ G, ctx }) => {
       const choice = G.shedChoices[0], player = G.players[Number(ctx.currentPlayer)];
       if (!choice || !player || G.confirmationKind || !validShedSelection(choice)) return;
+      saveStepSnapshot(G);
       const rewards: string[] = [];
       for (const index of choice.selected) {
         const cell = player.board[index];
@@ -328,6 +352,7 @@ export const HeavenAle: Game<AleState> = {
       const p = G.players[Number(ctx.currentPlayer)], prompt = G.privilegePrompts[0];
       if (G.confirmationKind || !prompt || !p) return;
       if (prompt.kind === 'pair' && card === 'skip') {
+        saveStepSnapshot(G);
         p.privilegePairs[prompt.pairIndex] = 'skip';
         G.log.unshift(`${p.name} 跳过第 ${prompt.pairIndex + 1} 组特权卡奖励；之后不能补放。`);
         G.privilegePrompts.shift(); if (!G.privilegePrompts.length) G.confirmationKind = 'turn';
@@ -339,18 +364,23 @@ export const HeavenAle: Game<AleState> = {
         if (!choice || !resources.includes(choice)) return;
         const count = p.board.filter(c => c.tile?.resource === choice).length;
         if (count === 0) return;
+        saveStepSnapshot(G);
         advance(p, choice, count);
         G.log.unshift(`特权卡 A：${resourceLabels[choice]} 资源板块共 ${count} 块，生产轨道推进 ${count} 格。`);
       } else if (card === 'B') {
         const options = lowestResources(p), selected = choice ?? (options.length === 1 ? options[0] : undefined), steps = scoreDiscIndexes(p).length;
         if (!selected || !options.includes(selected)) return;
+        saveStepSnapshot(G);
         advance(p, selected, steps);
         G.log.unshift(`特权卡 B：已有 ${steps} 个紫色标记，${resourceLabels[selected]} 资源轨推进 ${steps} 格。`);
       } else if (card === 'C') {
+        saveStepSnapshot(G);
         G.log.unshift(`特权卡 C：游戏结束时每个酒桶额外得 1 分。`);
       } else if (card === 'D') {
+        saveStepSnapshot(G);
         p.coins += 12; G.log.unshift(`特权卡 D：获得 12 金币。`);
       } else if (card === 'E') {
+        saveStepSnapshot(G);
         p.brewer = Math.min(20, p.brewer + 5); G.log.unshift(`特权卡 E：酿酒师向前推进 5 格。`);
       }
       p.privileges = p.privileges.filter(c => c !== card);
@@ -361,6 +391,7 @@ export const HeavenAle: Game<AleState> = {
       const p = G.players[Number(ctx.currentPlayer)];
       if (!p || G.phase !== 'play' || p.retired || (G.confirmationKind && G.confirmationKind !== 'turn') || G.privilegePrompts.length || !p.privileges.includes(card)) return;
       saveActionSnapshot(G);
+      saveStepSnapshot(G);
       p.privileges = p.privileges.filter(c => c !== card);
       p.coins += 3;
       G.log.unshift(`${p.name} 弃置特权卡 ${card}，获得 3 金币。`);
@@ -370,10 +401,18 @@ export const HeavenAle: Game<AleState> = {
       const snapshot = JSON.parse(G.undoSnapshot) as AleState;
       Object.assign(G, snapshot);
     },
+    undoStep: ({ G }) => {
+      const history = G.stepUndoSnapshots ?? [];
+      if (!history.length) return;
+      const snapshot = JSON.parse(history[history.length - 1]) as AleState;
+      history.pop();
+      Object.assign(G, snapshot);
+      G.stepUndoSnapshots = history;
+    },
     confirmAction: ({ G, events }) => {
       if (!G.undoSnapshot || !G.confirmationKind) return;
       const kind = G.confirmationKind;
-      G.undoSnapshot = null; G.confirmationKind = null;
+      G.undoSnapshot = null; G.stepUndoSnapshots = []; G.confirmationKind = null;
       if (kind === 'return') finishRound(G);
       if (kind !== 'free') events.endTurn();
     },
@@ -387,6 +426,11 @@ function advance(p: PlayerState, resource: Resource, by: number) {
 function saveActionSnapshot(G: AleState) {
   if (G.undoSnapshot) return;
   G.undoSnapshot = JSON.stringify({ ...G, undoSnapshot: null, confirmationKind: null });
+}
+function saveStepSnapshot(G: AleState) {
+  G.stepUndoSnapshots ??= [];
+  const snapshot = { ...G, stepUndoSnapshots: [] };
+  G.stepUndoSnapshots.push(JSON.stringify(snapshot));
 }
 function finishPurchaseIfNoOptions(G: AleState, p: PlayerState) {
   const pending = G.pending;

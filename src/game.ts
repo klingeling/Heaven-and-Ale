@@ -46,9 +46,9 @@ export const productionTrackPositions: Record<number, { left: number; top: numbe
 // each player board. Increasing Z maps downward on this board image, so these
 // TTS snap points are kept in top-to-bottom order (X, five resources, four monks).
 const scoringDiscSnaps: [number, number][] = [
-  [-7.46, -7.12], [-7.45, -5.925], [-7.46, -3.74], [-7.44, -2.535],
-  [-7.45, -0.548], [-7.45, 0.671], [-7.47, 2.771], [-7.48, 3.974],
-  [-7.485, 6.047], [-7.488, 7.278],
+  [-7.52, -7.05], [-7.52, -5.925], [-7.52, -3.74], [-7.52, -2.535],
+  [-7.52, -0.55], [-7.52, 0.670], [-7.52, 2.76], [-7.52, 3.974],
+  [-7.52, 5.97], [-7.52, 7.20],
 ];
 export const scoringDiscPositions = scoringDiscSnaps.map(([x, z]) => playerBoardPercent(x, z));
 export const privilegeCardPositions = [0, 1, 2, 3, 4].map(pair => {
@@ -64,7 +64,7 @@ export function playerBoardPercent(x: number, z: number) {
   // 1523px board image, so both the hexes and the -9..20 track share one map.
   return { left: ((764.95 - 91.91 * x) / 1523) * 100, top: ((756.18 + 92.42 * z) / 1523) * 100 };
 }
-export const playerColors = ['green', 'red', 'blue', 'yellow'];
+export const playerColors = ['black', 'yellow', 'blue', 'red'];
 const monkNames = ['僧侣A', '僧侣B', '僧侣C', '僧侣D'];
 export { monkNames };
 
@@ -89,28 +89,28 @@ export function canScore(p: PlayerState, scoreType: ActionSpace['scoreType']) {
 // Individual garden snap points from TTSMOD; retaining each real Z value avoids
 // row-level averaging that caused the outer hexes to drift off their artwork.
 const gardenRows: { sites: { x: number; z: number; side: 'sun' | 'shade' | 'hut' }[] }[] = [
-  { sites: [{ x: 0.230, z: -2.860, side: 'sun' }, { x: -1.520, z: -2.854, side: 'shade' }] },
-  { sites: [{ x: 1.100, z: -1.350, side: 'sun' }, { x: -0.650, z: -1.350, side: 'hut' }, { x: -2.390, z: -1.350, side: 'shade' }] },
-  { sites: [{ x: 3.740, z: 0.180, side: 'sun' }, { x: 1.970, z: 0.170, side: 'sun' }, { x: 0.220, z: 0.160, side: 'sun' }, { x: -1.520, z: 0.160, side: 'shade' }, { x: -3.300, z: 0.160, side: 'shade' }, { x: -5.070, z: 0.160, side: 'shade' }] },
-  { sites: [{ x: 4.620, z: 1.690, side: 'sun' }, { x: 2.870, z: 1.690, side: 'hut' }, { x: 1.090, z: 1.670, side: 'sun' }, { x: -0.650, z: 1.670, side: 'hut' }, { x: -2.390, z: 1.670, side: 'shade' }, { x: -4.190, z: 1.670, side: 'hut' }, { x: -5.940, z: 1.690, side: 'shade' }] },
-  { sites: [{ x: 3.740, z: 3.210, side: 'sun' }, { x: 1.980, z: 3.200, side: 'sun' }, { x: 0.225, z: 3.200, side: 'sun' }, { x: -1.520, z: 3.200, side: 'shade' }, { x: -3.300, z: 3.200, side: 'shade' }, { x: -5.060, z: 3.210, side: 'shade' }] },
-  { sites: [{ x: 4.650, z: 4.760, side: 'sun' }, { x: 2.870, z: 4.760, side: 'hut' }, { x: 1.090, z: 4.730, side: 'sun' }, { x: -0.650, z: 4.730, side: 'hut' }, { x: -2.410, z: 4.730, side: 'shade' }, { x: -4.190, z: 4.730, side: 'hut' }, { x: -5.940, z: 4.730, side: 'shade' }] },
-  { sites: [{ x: 3.755, z: 6.290, side: 'sun' }, { x: 1.980, z: 6.290, side: 'sun' }, { x: 0.220, z: 6.290, side: 'sun' }, { x: -1.540, z: 6.270, side: 'shade' }, { x: -3.320, z: 6.270, side: 'shade' }, { x: -5.080, z: 6.270, side: 'shade' }] },
+  { sites: [{ x: 0.260, z: -2.890, side: 'sun' }, { x: -1.520, z: -2.890, side: 'shade' }] },
+  { sites: [{ x: 1.150, z: -1.370, side: 'sun' }, { x: -0.600, z: -1.370, side: 'hut' }, { x: -2.410, z: -1.370, side: 'shade' }] },
+  { sites: [{ x: 3.830, z: 0.160, side: 'sun' }, { x: 2.050, z: 0.160, side: 'sun' }, { x: 0.250, z: 0.160, side: 'sun' }, { x: -1.540, z: 0.160, side: 'shade' }, { x: -3.320, z: 0.160, side: 'shade' }, { x: -5.100, z: 0.160, side: 'shade' }] },
+  { sites: [{ x: 4.720, z: 1.690, side: 'sun' }, { x: 2.920, z: 1.690, side: 'hut' }, { x: 1.140, z: 1.690, side: 'sun' }, { x: -0.600, z: 1.690, side: 'hut' }, { x: -2.410, z: 1.690, side: 'shade' }, { x: -4.220, z: 1.690, side: 'hut' }, { x: -5.970, z: 1.690, side: 'shade' }] },
+  { sites: [{ x: 3.830, z: 3.220, side: 'sun' }, { x: 2.050, z: 3.220, side: 'sun' }, { x: 0.250, z: 3.210, side: 'sun' }, { x: -1.540, z: 3.200, side: 'shade' }, { x: -3.320, z: 3.200, side: 'shade' }, { x: -5.100, z: 3.200, side: 'shade' }] },
+  { sites: [{ x: 4.720, z: 4.750, side: 'sun' }, { x: 2.920, z: 4.750, side: 'hut' }, { x: 1.140, z: 4.750, side: 'sun' }, { x: -0.600, z: 4.750, side: 'hut' }, { x: -2.410, z: 4.750, side: 'shade' }, { x: -4.220, z: 4.750, side: 'hut' }, { x: -5.970, z: 4.730, side: 'shade' }] },
+  { sites: [{ x: 3.830, z: 6.290, side: 'sun' }, { x: 2.050, z: 6.290, side: 'sun' }, { x: 0.250, z: 6.290, side: 'sun' }, { x: -1.540, z: 6.290, side: 'shade' }, { x: -3.320, z: 6.290, side: 'shade' }, { x: -5.100, z: 6.290, side: 'shade' }] },
 ];
 export const gardenCells = gardenRows.flatMap((row, rowIndex) => row.sites.map((site, col) => ({
   row: rowIndex, col, x: site.x, z: site.z, hut: site.side === 'hut', side: site.side === 'hut' ? undefined : site.side,
 })));
 
 // Public-board supply locations follow the TTS Lua positions and the clockwise printed route.
-const resourcePoints = [[370,120],[530,120],[1010,120],[1172,120],[1480,120],[1650,130],[1770,430],[1770,750],[1640,1050],[1310,1060],[960,1060],[610,1060],[440,1060],[270,1040],[110,450]];
-const monkPoints = [[685,120],[1790,260],[1135,1075],[100,750]];
-const scorePoints = [[850,120],[1330,120],[1760,610],[1475,1075],[780,1075],[135,930]];
+const resourcePoints = [[370,120],[525,120],[1000,120],[1157,120],[1465,120],[1640,130],[1770,430],[1770,750],[1635,1060],[1300,1060],[950,1060],[595,1060],[435,1060],[265,1060],[110,450]];
+const monkPoints = [[685,100],[1780,260],[1127,1082],[100,750]];
+const scorePoints = [[845,120],[1320,120],[1780,600],[1465,1075],[780,1075],[130,925]];
 const point = (x: number, y: number) => ({ x, y });
 const resourcesOnRoute = resourcePoints.map(([x,y], sourceIndex) => ({ type: 'resource' as const, label: '资源', sourceIndex, ...point(x,y) }));
 const monksOnRoute = monkPoints.map(([x,y], sourceIndex) => ({ type: 'monk' as const, label: '僧侣', sourceIndex, ...point(x,y) }));
 const scoresOnRoute = scorePoints.map(([x,y], sourceIndex) => ({ type: 'score' as const, label: '计分', sourceIndex, scoreType: (['A','B','C','ABC','ABC','ABC'] as const)[sourceIndex], ...point(x,y) }));
+const barrelA = { type: 'barrel' as const, label: '酒桶', ...point(1760, 920) };
 const barrelB = { type: 'barrel' as const, label: '酒桶', ...point(140, 605) };
-const barrelC = { type: 'barrel' as const, label: '酒桶', ...point(1745, 930) };
 export const barrelTokenPositions = [
   [531, 402], [706, 402], [876, 402], [1045, 402], [1212, 402], [1381, 402],
   [531, 784], [706, 784], [876, 784], [1045, 784], [1212, 784], [1381, 784],
@@ -123,9 +123,9 @@ export const startSlots = [
 ];
 const route = [
   resourcesOnRoute[0], resourcesOnRoute[1], monksOnRoute[0], scoresOnRoute[0], resourcesOnRoute[2], resourcesOnRoute[3], scoresOnRoute[1], resourcesOnRoute[4], resourcesOnRoute[5],
-  monksOnRoute[1], resourcesOnRoute[6], scoresOnRoute[2], resourcesOnRoute[7], barrelC, resourcesOnRoute[8], scoresOnRoute[3], resourcesOnRoute[9], monksOnRoute[2], resourcesOnRoute[10], scoresOnRoute[4], resourcesOnRoute[11], resourcesOnRoute[12], resourcesOnRoute[13], scoresOnRoute[5], monksOnRoute[3], barrelB, resourcesOnRoute[14],
+  monksOnRoute[1], resourcesOnRoute[6], scoresOnRoute[2], resourcesOnRoute[7], barrelA, resourcesOnRoute[8], scoresOnRoute[3], resourcesOnRoute[9], monksOnRoute[2], resourcesOnRoute[10], scoresOnRoute[4], resourcesOnRoute[11], resourcesOnRoute[12], resourcesOnRoute[13], scoresOnRoute[5], monksOnRoute[3], barrelB, resourcesOnRoute[14],
 ];
-const track: ActionSpace[] = [...route, { type: 'start', label: '回到起点', ...point(260, 326) }];
+const track: ActionSpace[] = [...route, { type: 'start', label: '回到起点', ...point(240, 300) }];
 const emptyPlayer = (id: number, color: string): PlayerState => ({
   name: `玩家${id + 1}`, color, coins: 25, board: gardenCells.map(c => ({ hut: c.hut, side: c.side })), position: -1, startSlot: null, retired: false,
   brewer: -9, tracks: { wood: 1, yeast: -2, hops: -4, water: -6, barley: -8 },

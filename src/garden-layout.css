@@ -15,7 +15,7 @@
 .garden-cell .plus{font-size:17px;color:#f5e6b666;text-shadow:0 1px 4px #161a13}
 .garden-cell.hut-cell{background:rgba(41,38,28,.06);border:1px solid transparent}
 .garden-cell.completed{background:transparent;border:1px solid transparent}
-.shed-image{width:79%;height:79%;object-fit:contain;filter:drop-shadow(0 3px 5px #111b)}
+.shed-image{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 5px #111b)}
 .side-switch{display:none}
 .shop-buy-list .site-side-tag{align-self:center;color:#dfc78f;font-size:8px;letter-spacing:.04em;padding:0 5px}
 .track-overlay{inset:0;padding:0;display:block;pointer-events:none}
@@ -77,7 +77,7 @@
 .player-meeple:hover,.start-player-figure:hover{z-index:100!important;transform:scale(1.3);filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 7px #ffe28a) drop-shadow(0 4px 6px #000f)}
 .brewer-marker-art:hover{z-index:100!important;transform:translate(-50%,-50%) scale(1.35);filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 7px #ffe28a) drop-shadow(0 4px 6px #000f)}
 .brewer-marker-art:hover::after,.player-meeple:hover::after{opacity:1;visibility:visible;transform:translate(-50%,0) scale(1)}
-.player-score-disc{position:absolute;z-index:9;width:4%;height:auto;aspect-ratio:1;object-fit:contain;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 3px #080b08);pointer-events:none}
+.player-score-disc{position:absolute;z-index:9;width:5%;height:auto;aspect-ratio:1;object-fit:contain;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 3px #080b08);pointer-events:none}
 .board-privilege-card{position:absolute;z-index:4;width:auto;aspect-ratio:1.6;object-fit:contain;transform:translate(-18%,-50%);clip-path:inset(0 0 0 18%);filter:drop-shadow(0 2px 3px #080b08);pointer-events:none}
 .privilege-prompt h3{font-family:var(--serif);font-size:15px;margin:5px 0}
 .privilege-pick-list{display:flex;gap:6px;align-items:stretch;overflow-x:auto;padding:7px 1px}
@@ -135,7 +135,7 @@
 .shed-choice-panel p{font-size:9px;line-height:1.5;color:#c8c1ad;margin:5px 0}
 .shed-choice-status{font-size:9px;color:#dfc78f;margin:7px 0}
 .shed-choice-panel .btn{width:auto;height:32px;margin:0}
-.garden-board.shed-choice-active .garden-cell:not(.shed-target){opacity:.38}
+.garden-board.shed-choice-active .garden-cell:not(.shed-target){opacity:.95}
 .garden-cell.shed-target{opacity:1!important;z-index:8;border:2px solid #f4d987;background:#d8b96035;box-shadow:0 0 12px #f2d3859c;cursor:pointer;animation:pulse 1s infinite alternate}
 .garden-cell.shed-unavailable{opacity:.12!important;filter:grayscale(1);cursor:not-allowed}
 .garden-cell.shed-selected{border:3px solid #fff2bc;background:#ffdf865e;box-shadow:0 0 22px #ffe596;filter:brightness(1.2);transform:translate(-50%,-50%) scale(1.07)}
@@ -151,7 +151,7 @@
 .main-board-wrap{overflow:visible}
 .track-space:disabled{opacity:1}
 @media(min-width:781px){
-  .game-layout{display:grid;width:100%;max-width:none;grid-template-columns:minmax(0,.82fr) minmax(0,1fr) minmax(185px,.33fr);gap:10px;padding:10px;align-items:start}
+  .game-layout{display:grid;width:100%;max-width:none;grid-template-columns:minmax(0,.7fr) minmax(0,0.82fr) minmax(185px,.23fr);gap:10px;padding:10px;align-items:start}
   .center-play{grid-column:1;min-width:0}
   .right-rail{grid-column:2;display:flex;flex-direction:column;align-items:stretch;min-width:0;margin:0}
   .right-rail .garden-heading{display:block;margin:0 0 8px}
@@ -181,12 +181,18 @@
   .far-right-rail .resource-summary{grid-column:2}
 }
 @media(max-width:780px){
-  .game-layout{display:block;width:100%;max-width:none;padding:10px;gap:0}
-  .far-right-rail{display:grid;grid-template-columns:1fr;gap:5px;margin-top:16px}
+  .game-layout{display:flex;flex-direction:column;width:100%;max-width:none;padding:10px;gap:0}
+  .far-right-rail{display:contents}
+  .far-right-rail>.rail-heading:first-child{order:0;margin:8px 0 4px}
+  .far-right-rail .player-roster{order:1}
+  .center-play{order:2}
+  .right-rail{order:3}
+  .far-right-rail .log-heading{order:4;margin-top:12px}
+  .far-right-rail .log-list{order:5}
   .far-right-rail .player-roster{display:grid;grid-template-columns:1fr 1fr;gap:4px}
   .far-right-rail .player-card{min-width:0;margin:0;padding:7px}
   .far-right-rail .resource-summary{display:block;overflow-x:auto}
-  .far-right-rail .log-list{max-height:220px;overflow:auto}
+  .far-right-rail .log-list{display:block;max-height:220px;overflow:auto}
   .right-rail{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;margin-top:20px}
   .right-rail .garden-heading{display:flex;grid-column:span 2;align-items:end}
   .right-rail .garden-board{grid-column:span 2;width:100%;max-width:none;margin:0 auto 14px}
@@ -259,5 +265,6 @@
 .track-space.available-space:hover{background:transparent;box-shadow:none;filter:drop-shadow(0 0 5px #ffe1a0)}
 .track-space:focus-visible{outline:2px dashed #f0d18c;outline-offset:2px}
 .space-score-discs{display:flex;align-items:center;justify-content:center;gap:2px;width:100%;height:100%}
-.space-score-discs img{width:60%;max-height:82%;object-fit:contain;filter:drop-shadow(0 2px 2px #0009)}
+.space-score-discs img{width:80%;max-height:82%;object-fit:contain;filter:drop-shadow(0 2px 2px #0009)}
 .log-list p.log-turn-divider{position:sticky;top:0;margin:12px 0 7px;padding:7px 8px;border-left:3px solid #c7a765;border-top:1px solid #c7a76555;background:#2d392d;color:#ead3a1;font-size:10px;font-weight:700;letter-spacing:.04em}
+.barrel-claim-badge.black{border-color:#d8d8d8}

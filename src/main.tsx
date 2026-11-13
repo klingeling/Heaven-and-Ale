@@ -19,6 +19,7 @@ const localSaveKey = 'heaven-and-ale-local-session-v1';
 type LocalSave = { version: 1; playerCount: number; botSeats: number[]; botDifficulty: BotDifficulty; playerNames: string[]; state: any; initialState: any; log: any[]; savedAt: number; botNames?: string[] };
 type OnlineRoomSession = { matchID: string; playerID: string; credentials: string; playerName: string; numPlayers: number; host: boolean; botSeats: number[]; botDifficulty?: BotDifficulty; botCredentials: { playerID: string; credentials: string }[] };
 type LobbyRoom = { matchID: string; players: { id: number; name?: string; isConnected?: boolean; data?: Record<string, unknown> }[]; gameover?: unknown; updatedAt?: number };
+type BotSearchUpdate = { playerID: number; iterations: number; thinking: boolean; updatedAt: number };
 const onlineNameKey = 'heaven-and-ale-online-player-name-v1';
 const onlineSessionKey = (matchID: string) => `heaven-and-ale-online-room-${matchID}`;
 const onlineSessionPrefix = 'heaven-and-ale-online-room-';
@@ -87,6 +88,7 @@ function App() {
   const [roomInfo, setRoomInfo] = useState('');
   const [openRooms, setOpenRooms] = useState<LobbyRoom[]>([]);
   const [abandonVoteState, setAbandonVoteState] = useState<{ votes: number[]; passed: boolean }>({ votes: [], passed: false });
+  const [roomDeleteTarget, setRoomDeleteTarget] = useState<OnlineRoomSession | null>(null);
   const [onlineRoom, setOnlineRoom] = useState<OnlineRoomSession | null>(null);
   const [roomMatch, setRoomMatch] = useState<LobbyRoom | null>(null);
   const [remoteBotClients, setRemoteBotClients] = useState<{ seat: number; client: AnyClient }[]>([]);
@@ -246,6 +248,32 @@ function App() {
     if (onlineRoom) localStorage.removeItem(onlineSessionKey(onlineRoom.matchID));
     returnHome();
   };
+  const deleteRoomAndHistory = async (session: OnlineRoomSession) => {
+    setBusy(true);
+    try {
+      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/admin/matches/${encodeURIComponent(session.matchID)}/delete`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerID: session.playerID, credentials: session.credentials }),
+      });
+      if (!response.ok) throw new Error(response.status === 403 ? '只有创建房间的房主可以删除。' : `服务器返回 ${response.status}`);
+      localStorage.removeItem(onlineSessionKey(session.matchID));
+      setOpenRooms(rooms => rooms.filter(room => room.matchID !== session.matchID));
+      setRoomDeleteTarget(null); setRoomInfo(`房间 ${session.matchID} 及其对局记录已删除。`);
+    } catch (e) { setRoomInfo(`删除失败：${e instanceof Error ? e.message : '请确认服务端已更新。'}`); }
+    setBusy(false);
+  };
+  const publishBotSearch = async (status: BotSearchUpdate | null) => {
+    if (!onlineRoom?.host || !status) return;
+    const botSession = onlineRoom.botCredentials.find(bot => Number(bot.playerID) === status.playerID);
+    if (!botSession) return;
+    const previous = roomMatch?.players.find(player => Number(player.id) === status.playerID)?.data || {};
+    try {
+      await new LobbyClient({ server: serverUrl }).updatePlayer(gameName, onlineRoom.matchID, {
+        playerID: botSession.playerID, credentials: botSession.credentials,
+        data: { ...previous, botSearch: status },
+      });
+    } catch { /* search telemetry is best-effort; it must not interrupt the bot */ }
+  };
   useEffect(() => { if (roomCode && screen === 'home' && !busy) void joinRoom(roomCode); }, []);
   useEffect(() => {
     if ((screen !== 'waiting' && screen !== 'game') || !onlineRoom) return;
@@ -276,7 +304,7 @@ function App() {
   }, [client, localConfig]);
   const returnHome = () => { client?.stop(); remoteBotClients.forEach(({ client: botClient }) => botClient.stop()); setRemoteBotClients([]); setClient(null); setSnapshot(null); setScreen('home'); setActiveBotSeats([]); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]); setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setBotDifficulty('normal'); const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url); };
   const abandonLocalGame = () => { localStorage.removeItem(localSaveKey); setSavedLocal(null); returnHome(); };
-  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig} onlineVoteState={abandonVoteState} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
+  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
   if (screen === 'waiting' && onlineRoom) {
     const players = roomMatch?.players || [];
     const full = players.length >= onlineRoom.numPlayers && players.slice(0, onlineRoom.numPlayers).every(p => !!p.name);
@@ -306,14 +334,15 @@ function App() {
         </div>
         <div className="setup-card online-card"><div className="card-kicker">PLAY TOGETHER</div><h2>线上大厅</h2><p>浏览公开等候桌，或创建一桌并邀请朋友加入。</p><label>玩家名称<input value={playerName} onChange={e => setSavedName(e.target.value)} onBlur={() => { if (!playerName.trim()) setSavedName('玩家1'); }} maxLength={18} /></label><label>游戏服务器<input value={serverUrl} onChange={e => setServerUrl(e.target.value)} /></label><div className="online-create-options"><label>总人数<select value={onlinePlayerCount} onChange={e => { const n = Number(e.target.value); setOnlinePlayerCount(n); setOnlineBotCount(current => Math.min(current, n - 1)); }}><option value={2}>2 人</option><option value={3}>3 人</option><option value={4}>4 人</option></select></label><label>机器人席位<select value={onlineBotCount} onChange={e => setOnlineBotCount(Number(e.target.value))}>{Array.from({ length: onlinePlayerCount }, (_, n) => n < onlinePlayerCount ? <option key={n} value={n}>{n === 0 ? '不加入机器人' : `加入 ${n} 个机器人`}</option> : null).slice(0, onlinePlayerCount)}</select></label></div>{onlineBotCount > 0 && <label>机器人难度<select value={onlineBotDifficulty} onChange={e => setOnlineBotDifficulty(e.target.value as BotDifficulty)}><option value="normal">普通</option><option value="expert">专家</option></select></label>}<div className="online-actions"><button className="btn btn-outline" disabled={busy} onClick={createRoom}>创建等候桌</button><div className="join-row"><input placeholder="房间号 / 链接" value={roomCode} onChange={e => { const v = e.target.value; const match = v.match(/[?&]room=([^&]+)/); setRoomCode(match ? decodeURIComponent(match[1]) : v); }} /><button className="btn btn-light" disabled={busy} onClick={() => void joinRoom()}>加入</button></div></div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="lobby-list-heading"><b>可加入的房间</b><button onClick={() => void refreshRooms()}>刷新</button></div><div className="lobby-room-list">{openRooms.filter(room => room.players?.some(p => p.name)).map(room => { const occupied = room.players.filter(p => p.name).length, cap = room.players.length || 0; return <button className="lobby-room" key={room.matchID} disabled={busy || occupied >= cap} onClick={() => { setRoomCode(room.matchID); void joinRoom(room.matchID); }}><span><b>房间 {room.matchID}</b><small>{room.players.filter(p => p.name).map(p => p.name).join('、')}</small></span><em>{occupied}/{cap} 人 · {occupied >= cap ? '已满' : '等待中'}</em></button>; })}{openRooms.filter(room => room.players?.some(p => p.name)).length === 0 && <div className="lobby-empty">当前没有公开等候桌</div>}</div></div>
       </div>
-      {myOnlineRooms.length > 0 && <section className="my-online-rooms setup-card"><div className="lobby-list-heading"><b>我加入的房间</b><span>保存在此设备</span></div><div className="lobby-room-list">{myOnlineRooms.map(session => { const room = openRooms.find(item => item.matchID === session.matchID); const occupied = room?.players.filter(p => p.name).length ?? 0; return <div className="lobby-room my-room" key={session.matchID}><span><b>{room?.players.find(p => Number(p.id) === Number(session.playerID))?.name || session.playerName} · 房间 {session.matchID}</b><small>{room?.players.filter(p => p.name).map(p => p.name).join('、') || '房间暂不可用'}</small></span><em>{room ? `${occupied}/${room.players.length} 人` : '离线 / 已结束'}</em><button className="btn btn-light" onClick={() => { setRoomCode(session.matchID); void joinRoom(session.matchID); }}>重新进入</button></div>; })}</div></section>}
+      {myOnlineRooms.length > 0 && <section className="my-online-rooms setup-card"><div className="lobby-list-heading"><b>我加入的房间</b><span>保存在此设备</span></div><div className="lobby-room-list">{myOnlineRooms.map(session => { const room = openRooms.find(item => item.matchID === session.matchID); const occupied = room?.players.filter(p => p.name).length ?? 0; return <div className="lobby-room my-room" key={session.matchID}><span><b>{room?.players.find(p => Number(p.id) === Number(session.playerID))?.name || session.playerName} · 房间 {session.matchID}</b><small>{room?.players.filter(p => p.name).map(p => p.name).join('、') || '房间暂不可用'}</small></span><em>{room ? `${occupied}/${room.players.length} 人` : '离线 / 已结束'}</em><button className="btn btn-light" onClick={() => { setRoomCode(session.matchID); void joinRoom(session.matchID); }}>重新进入</button>{session.host && <button className="btn btn-danger" onClick={() => setRoomDeleteTarget(session)}>删除房间</button>}</div>; })}</div></section>}
+      {roomDeleteTarget && <div className="modal-backdrop" onClick={() => setRoomDeleteTarget(null)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-room-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setRoomDeleteTarget(null)}>×</button><span className="eyebrow">DELETE TABLE</span><h2 id="delete-room-title">删除房间和全部记录？</h2><p>房间 {roomDeleteTarget.matchID} 将从服务器永久删除，其他玩家也无法再通过链接进入。</p><div className="confirm-actions"><button className="btn btn-outline" disabled={busy} onClick={() => setRoomDeleteTarget(null)}>取消</button><button className="btn btn-danger" disabled={busy} onClick={() => void deleteRoomAndHistory(roomDeleteTarget)}>{busy ? "正在删除…" : "删除房间"}</button></div></div></div>}
       <div className="feature-row"><span>✦ 依照官方规则设计</span><span>✦ 共享房间码联机</span><span>✦ 支持 2–4 人</span></div>
     </section>
     <footer>HEAVEN & ALE <span>·</span> 天堂与美酒</footer>
   </main>;
 }
 
-function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClients, playerName, onlinePlayerNames, remoteBotDifficulty, botDifficulty, isLocal, onlineVoteState, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; playerName?: string; onlinePlayerNames?: string[]; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; onlineVoteState: { votes: number[]; passed: boolean }; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
+function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClients, playerName, onlinePlayerNames, remoteBotDifficulty, botDifficulty, isLocal, onlineVoteState, sharedBotSearches, onBotSearchUpdate, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; playerName?: string; onlinePlayerNames?: string[]; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; onlineVoteState: { votes: number[]; passed: boolean }; sharedBotSearches: BotSearchUpdate[]; onBotSearchUpdate: (status: BotSearchUpdate | null) => void; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
   const rawG = state.G as AleState;
   const G = onlinePlayerNames ? { ...rawG, players: rawG.players.map((player, i) => onlinePlayerNames[i] ? { ...player, name: onlinePlayerNames[i] } : player) } as AleState : rawG;
   const ctx = state.ctx, currentPlayerIndex = Number(ctx.currentPlayer);
@@ -337,6 +366,22 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
   const [toast, setToast] = useState('');
   const [botSearchStatus, setBotSearchStatus] = useState<{ playerID: number; iterations: number } | null>(null);
+  const onBotSearchUpdateRef = React.useRef(onBotSearchUpdate);
+  const lastBotStatusRef = React.useRef<{ playerID: number; iterations: number } | null>(null);
+  const lastBotStatusSyncRef = React.useRef(0);
+  useEffect(() => { onBotSearchUpdateRef.current = onBotSearchUpdate; }, [onBotSearchUpdate]);
+  const reportBotThinking = React.useCallback((status: { playerID: number; iterations: number } | null) => {
+    setBotSearchStatus(status);
+    if (status) lastBotStatusRef.current = status;
+    const now = Date.now();
+    if (status || lastBotStatusRef.current) {
+      const last = lastBotStatusRef.current;
+      if (last && (!status || now - lastBotStatusSyncRef.current >= 900)) {
+        lastBotStatusSyncRef.current = now;
+        onBotSearchUpdateRef.current({ playerID: last.playerID, iterations: status?.iterations ?? last.iterations, thinking: !!status, updatedAt: now });
+      }
+    }
+  }, []);
   const [viewingPlayerIndex, setViewingPlayerIndex] = useState(currentPlayerIndex);
   useEffect(() => setViewingPlayerIndex(currentPlayerIndex), [currentPlayerIndex]);
   useEffect(() => {
@@ -350,6 +395,8 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const garden = gardenCells;
   const activeSeat = Number(ctx.currentPlayer);
   const isBotTurn = botSeats.includes(activeSeat) && G.phase !== 'finished';
+  const sharedActiveBotSearch = sharedBotSearches.find(search => search.playerID === activeSeat && Date.now() - search.updatedAt < 12000);
+  const activeBotSearch = botSearchStatus?.playerID === activeSeat ? botSearchStatus : sharedActiveBotSearch?.thinking ? sharedActiveBotSearch : undefined;
   const canControlTurn = ownsCurrentTurn && !isBotTurn && !onlineVoteState.passed;
   const canMove = canControlTurn && !action && !G.confirmationKind && !G.privilegePrompts.length && !currentPlayer.retired && G.phase === 'play';
   const trackMove = (index: number) => { if (!canMove || !canMoveTo(G, currentPlayer, index)) return 0; const moveTime = animateMeepleMove(currentPlayerIndex, index); const barrelTime = G.track[index]?.type === 'barrel' ? animateBarrels(currentPlayerIndex) : 0; moves.moveTo(index); setSelectedTileId(null); return Math.max(moveTime, barrelTime); };
@@ -666,14 +713,15 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     else if (index >= 6 && index <= 9) placeScoreChoice('B', monkNames[index - 6]);
   };
   return <main className="table-screen">
-    {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={setBotSearchStatus} onBeforeMove={animateBotMove} />}
-    {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={setBotSearchStatus} onBeforeMove={animateBotMove} />)}
+    {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />}
+    {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />)}
     {pieceFlights.map(flight => <div key={flight.id} className={`tile-flight ${flight.started ? 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, backgroundPosition: flight.kind === 'resource-marker' ? `${resources.indexOf(flight.resourceKey!) * 25}% center` : flight.kind === 'brewer-marker' || flight.kind === 'meeple' ? tokenSpritePosition(flight.playerColor || 'green') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <img src={`/Images/barrel_goal_${flight.barrelId}.png`} alt="" /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : null}</div>)}
     <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div><div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div><button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{!isLocal && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number((client as any).playerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
+    {!isLocal && !onlineVoteState.passed && !canControlTurn && G.confirmationKind && <div className="turn-waiting-banner"><b>{isBotTurn ? `${currentPlayer.name} 正在处理本次行动` : `等待 ${currentPlayer.name} 确认行动`}</b><span>轮到该玩家操作后，对局会自动继续同步</span></div>}
     {!isLocal && onlineVoteState.passed && <div className="abandon-vote-banner"><b>放弃投票已通过，本局结束。</b><span>{onlineVoteState.votes.length} / {requiredAbandonVotes(G.players.length, botSeats)} 票赞成</span><button className="btn btn-gold" onClick={onLeaveAbandoned}>回到主页</button></div>}
     {G.phase === 'finished' && <div className="game-over-banner"><b>{gameover?.draw ? '平分，共享胜利：' : '获胜者：'}{winnerIds.map(id => G.players[Number(id)]?.name).filter(Boolean).join('、')}</b><span> · </span>{G.players.map((p, i) => <span key={i}>{p.name}：{gameover?.scores?.[i] ?? scoreBreakdown(p).total} 分{i < G.players.length - 1 ? '　' : ''}</span>)}</div>}
     <div className={`game-layout ${isBotTurn ? 'bot-thinking' : ''}`}>
-      <section className="center-play"><div className="board-heading"><div><h2>主游戏版图</h2></div>{isBotTurn ? <span className="bot-thinking-pill"><i className="bot-thinking-dot" />{G.players[activeSeat]?.name} 正在思考</span> : <span className="board-tip"></span>}</div>
+      <section className="center-play"><div className="board-heading"><div><h2>主游戏版图</h2></div>{isBotTurn ? <span className="bot-thinking-pill"><i className="bot-thinking-dot" />{G.players[activeSeat]?.name} 正在思考 · 搜索 {activeBotSearch?.iterations ?? 0} 次</span> : <span className="board-tip"></span>}</div>
         <div className="main-board-wrap"><img src="/Images/main_board_clear.jpg" alt="天堂与美酒主版图" className="main-board-art" /><div className="track-overlay">
           {G.track.map((space, i) => {
             const occupants = G.players.filter(p => p.position === i); const here = canMove && i > currentPlayer.position; const stock = space.type === 'resource' ? G.resources[space.sourceIndex ?? -1] : space.type === 'monk' ? G.monks[space.sourceIndex ?? -1] : []; const supplySpace = space.type === 'resource' || space.type === 'monk'; const good = here && canMoveTo(G, currentPlayer, i); const x = (space.x / 1904) * 100, y = (space.y / 1176) * 100; return <button key={i} data-track-index={i} disabled={!good} onClick={() => trackMove(i)} style={{ left: `${x}%`, top: `${y}%` }} className={`track-space ${space.type} ${good ? 'available-space' : ''} ${currentPlayer.position === i ? 'current-space' : ''}`} title={`${i + 1} · ${space.label}`}>
@@ -700,8 +748,8 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       </section>
       <aside className={`right-rail ${!isViewingCurrent ? 'is-inspecting-opponent' : ''}`}><div className="garden-heading"><div><h2>{me.name}的修道院</h2>{!isViewingCurrent && <small className="inspection-hint">正在查看对手版图 · 只读</small>}</div><div className="garden-legend"></div></div><div className="garden-board-reserved"><Garden player={me} playerIndex={viewingPlayerIndex} pieceFlights={pieceFlights} selectedTile={isViewingCurrent && canPlace ? selectedTile : undefined} sourceIndex={currentActionSpace?.sourceIndex} coins={activePlayer.coins} canPlace={isViewingCurrent && canPlace} activePlayer={me} shedChoice={isViewingCurrent && canControlTurn ? activeShedChoice : undefined} flightTileId={pieceFlights.find(flight => flight.kind === 'tile')?.tile?.id} flightTargetIndex={pieceFlights.find(flight => flight.kind === 'tile')?.targetIndex} flightScoreIndex={pieceFlights.find(flight => flight.kind === 'disc')?.scoreIndex} scoreTargetIndices={scoreTargetIndices} onScoreTarget={placeScoreFromBoard} onShedToggle={(i) => { if (canControlTurn && isViewingCurrent) moves.toggleShedChoice(i); }} onSelect={(i) => { if (canControlTurn && isViewingCurrent) placeTile(i); }} cells={garden} /></div><div className="rail-heading">特权卡 · 点击弃置可得3个钱币</div><div className="privileges">{['A', 'B', 'C', 'D', 'E'].filter(card => !me.privilegePairs.includes(card)).map(card => { const inHand = me.privileges.includes(card); const earned = me.privilegePairs.includes(card); const blocked = !canControlTurn || !isViewingCurrent || (!!G.confirmationKind && G.confirmationKind !== 'turn') || !!privilegePrompt; return <div className={`privilege ${inHand ? '' : 'used'}`} data-privilege-card={card} key={card}><img src={`/Images/privilege_card_front_${card}.png`} alt={`特权卡 ${card}`} />{inHand ? <button disabled={blocked} onClick={() => { if (!canControlTurn) return; animatePrivilegeCoins(currentPlayerIndex, card, 3); moves.discardPrivilege(card); }}>弃置 +3</button> : <span>{earned ? '已放置' : '已弃置'}</span>}</div>; })}</div><div className="rail-heading">已领取酒桶 <span className="count">{me.claimedBarrels.length}</span></div><div className="barrel-strip">{me.claimedBarrels.map((b, i) => <span key={`${b.id}-${i}`} className={`barrel-claimed-item ${b.size}`} style={{ visibility: pieceFlights.some(flight => flight.kind === 'barrel' && flight.playerIndex === viewingPlayerIndex && flight.barrelId === b.id && flight.barrelSize === b.size) ? 'hidden' : 'visible' }} title={`目标 ${b.id}：${barrelGoals[b.id - 1]} ${b.size === 'large' ? '大酒桶，4分' : '小酒桶，2分'}`}><img src={`/Images/barrel_goal_${b.id}.png`} alt={`目标 ${b.id}`} /><small>{b.size === 'large' ? '大 · 4分' : '小 · 2分'}</small></span>)}</div><div className="score-summary"><span>当前钱币</span><b><i className="player-coin-icon" aria-label="钱币" /> {me.coins}</b><span>酒桶计分</span><b>{me.claimedBarrels.reduce((n, b) => n + (b.size === 'large' ? 4 : 2), 0) + (me.privilegePairs.includes('C') ? me.claimedBarrels.length : 0)} 分</b></div></aside>
       <aside className="far-right-rail"><div className="rail-heading">玩家信息 · 点击查看版图</div><div className="player-roster">{G.players.map((p, i) => {
-        const scoring = scoreBreakdown(p); return <div className={`player-info-unit ${i === viewingPlayerIndex ? 'is-viewing' : ''}`} data-player-index={i} key={i} role="button" tabIndex={0} aria-label={`查看${p.name}的玩家版图`} onClick={() => setViewingPlayerIndex(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingPlayerIndex(i); } }}>
-          <div className={`player-card ${i === Number(ctx.currentPlayer) ? 'is-turn' : ''} ${p.retired ? 'is-done' : ''}`}><div className={`avatar ${p.color}`}>{p.name.slice(-1)}</div><div className="player-name"><span className="player-name-score">{p.name}<b title="实时计分">★ {scoring.total}</b></span><small>{botSeats.includes(i) ? `${botDifficulty === 'expert' ? '专家' : '普通'}机器人${i === Number(ctx.currentPlayer) ? botSearchStatus?.playerID === i ? ` · 搜索中 ${botSearchStatus.iterations} 次` : ' · 正在行动' : ''}` : p.retired ? '本轮已休息' : i === Number(ctx.currentPlayer) ? '正在行动' : '等待中'}</small></div><div className="money"><i className="player-coin-icon" aria-label="钱币" /> {p.coins}</div></div>
+        const scoring = scoreBreakdown(p); const searchStatus = botSearchStatus?.playerID === i ? botSearchStatus : sharedBotSearches.find(status => status.playerID === i && status.thinking && Date.now() - status.updatedAt < 12000); return <div className={`player-info-unit ${i === viewingPlayerIndex ? 'is-viewing' : ''}`} data-player-index={i} key={i} role="button" tabIndex={0} aria-label={`查看${p.name}的玩家版图`} onClick={() => setViewingPlayerIndex(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingPlayerIndex(i); } }}>
+          <div className={`player-card ${i === Number(ctx.currentPlayer) ? 'is-turn' : ''} ${p.retired ? 'is-done' : ''}`}><div className={`avatar ${p.color}`}>{p.name.slice(-1)}</div><div className="player-name"><span className="player-name-score">{p.name}<b title="实时计分">★ {scoring.total}</b></span><small>{botSeats.includes(i) ? `${botDifficulty === 'expert' ? '专家' : '普通'}机器人${i === Number(ctx.currentPlayer) ? searchStatus ? ` · 搜索中 ${searchStatus.iterations} 次` : ' · 正在行动' : ''}` : p.retired ? '本轮已休息' : i === Number(ctx.currentPlayer) ? '正在行动' : '等待中'}</small></div><div className="money"><i className="player-coin-icon" aria-label="钱币" /> {p.coins}</div></div>
           <div className="player-live-details" title={`按当前状态预演终局：资源归并后最低为 ${scoring.minResource}，生产 ${scoring.productionScore} 分；酒桶 ${scoring.barrelScore} 分；起始奖励 ${scoring.startBonus} 分。`}>
             <div className="player-info-table">
               <div className="player-info-row resource-icon-row">{resources.map(resource => <span key={resource} className="resource-stat" title={`${resourceLabels[resource]}：${p.tracks[resource]}`}><img className="player-board-resource" src={`/Images/resource_icon_${resource}.png`} alt="" /><b>{p.tracks[resource]}</b></span>)}</div>
@@ -745,6 +793,7 @@ function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove 
     let worker: Worker | undefined;
     let requestID = 0;
     let animationLockUntil = 0;
+    let lastProgressAt = 0;
     const onState = (state: any) => {
       requestID++;
       const request = requestID;
@@ -773,7 +822,11 @@ function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove 
         worker = new Worker(new URL('./bot.worker.ts', import.meta.url), { type: 'module' });
         worker.onmessage = event => {
           if (event.data.requestID !== request) return;
-          if (typeof event.data.progress === 'number') { onThinking({ playerID, iterations: event.data.progress }); return; }
+          if (typeof event.data.progress === 'number') {
+            const now = Date.now();
+            if (event.data.progress === 1 || now - lastProgressAt >= 900) { lastProgressAt = now; onThinking({ playerID, iterations: event.data.progress }); }
+            return;
+          }
           if (event.data.error) console.error('MCTS 搜索失败', event.data.error);
           finish(event.data.move ?? chooseBotMove(current.G, current.ctx.currentPlayer, difficulty));
         };

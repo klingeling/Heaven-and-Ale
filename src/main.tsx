@@ -276,7 +276,7 @@ function App() {
   }, [client, localConfig]);
   const returnHome = () => { client?.stop(); remoteBotClients.forEach(({ client: botClient }) => botClient.stop()); setRemoteBotClients([]); setClient(null); setSnapshot(null); setScreen('home'); setActiveBotSeats([]); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]); setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setBotDifficulty('normal'); const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url); };
   const abandonLocalGame = () => { localStorage.removeItem(localSaveKey); setSavedLocal(null); returnHome(); };
-  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} playerName={onlineRoom?.playerName} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig} onlineVoteState={abandonVoteState} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
+  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig} onlineVoteState={abandonVoteState} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
   if (screen === 'waiting' && onlineRoom) {
     const players = roomMatch?.players || [];
     const full = players.length >= onlineRoom.numPlayers && players.slice(0, onlineRoom.numPlayers).every(p => !!p.name);
@@ -313,8 +313,10 @@ function App() {
   </main>;
 }
 
-function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClients, playerName, remoteBotDifficulty, botDifficulty, isLocal, onlineVoteState, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; playerName?: string; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; onlineVoteState: { votes: number[]; passed: boolean }; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
-  const G = state.G as AleState, ctx = state.ctx, currentPlayerIndex = Number(ctx.currentPlayer);
+function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClients, playerName, onlinePlayerNames, remoteBotDifficulty, botDifficulty, isLocal, onlineVoteState, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; playerName?: string; onlinePlayerNames?: string[]; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; onlineVoteState: { votes: number[]; passed: boolean }; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
+  const rawG = state.G as AleState;
+  const G = onlinePlayerNames ? { ...rawG, players: rawG.players.map((player, i) => onlinePlayerNames[i] ? { ...player, name: onlinePlayerNames[i] } : player) } as AleState : rawG;
+  const ctx = state.ctx, currentPlayerIndex = Number(ctx.currentPlayer);
   const currentPlayer = G.players[currentPlayerIndex] ?? G.players[0];
   const gameover = ctx.gameover as { winner?: string; winners?: string[]; draw?: boolean; scores?: number[] } | undefined;
   const winnerIds = gameover?.winners ?? (gameover?.winner !== undefined ? [String(gameover.winner)] : []);
@@ -322,7 +324,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const ownsCurrentTurn = isLocal || Number((client as any).playerID) === currentPlayerIndex;
   useEffect(() => {
     const ownID = Number((client as any).playerID);
-    if (!isLocal && playerName?.trim() && ownID === currentPlayerIndex && G.players[ownID]?.name !== playerName.trim()) moves.setPlayerName?.(playerName.trim());
+    if (!isLocal && playerName?.trim() && ownID === currentPlayerIndex && rawG.players[ownID]?.name !== playerName.trim()) moves.setPlayerName?.(playerName.trim());
   }, [state._stateID, client, playerName, isLocal, currentPlayerIndex]);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
   const [pieceFlights, setPieceFlights] = useState<PieceFlight[]>([]);

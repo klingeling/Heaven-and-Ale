@@ -85,6 +85,7 @@
 .score-disc-target.monk{clip-path:none;border-radius:50%}
 .score-disc-target:hover,.score-disc-target:focus-visible{background:rgba(211,174,240,.24);filter:drop-shadow(0 0 5px #d8a9ff);outline:none}
 .board-privilege-card{position:absolute;z-index:4;width:auto;aspect-ratio:1.6;object-fit:contain;transform:translate(-18%,-50%);clip-path:inset(0 0 0 18%);filter:drop-shadow(0 2px 3px #080b08);pointer-events:none}
+.board-privilege-target{visibility:hidden}
 .privilege-prompt h3{font-family:var(--serif);font-size:15px;margin:5px 0}
 .privilege-pick-list{display:flex;gap:6px;align-items:stretch;overflow-x:auto;padding:7px 1px}
 .privilege-pick-list button{position:relative;min-width:78px;min-height:88px;display:grid;justify-items:center;align-content:start;gap:5px;padding:5px;border:1px solid #ffffff24;background:#2a372f;color:#e7ddc5;font-size:8px;cursor:pointer}

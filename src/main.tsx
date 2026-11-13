@@ -17,6 +17,17 @@ const tokenSpriteColorIndex: Record<string, number> = { black: 0, blue: 1, green
 const tokenSpritePosition = (color: string) => `${(tokenSpriteColorIndex[color] ?? 0) * (100 / 6)}% center`;
 const localSaveKey = 'heaven-and-ale-local-session-v1';
 type LocalSave = { version: 1; playerCount: number; botSeats: number[]; botDifficulty: BotDifficulty; playerNames: string[]; state: any; initialState: any; log: any[]; savedAt: number; botNames?: string[] };
+type OnlineRoomSession = { matchID: string; playerID: string; credentials: string; playerName: string; numPlayers: number; host: boolean; botSeats: number[]; botDifficulty?: BotDifficulty; botCredentials: { playerID: string; credentials: string }[] };
+type LobbyRoom = { matchID: string; players: { id: number; name?: string; isConnected?: boolean }[]; gameover?: unknown; updatedAt?: number };
+const onlineNameKey = 'heaven-and-ale-online-player-name-v1';
+const onlineSessionKey = (matchID: string) => `heaven-and-ale-online-room-${matchID}`;
+function saveOnlineSession(session: OnlineRoomSession) {
+  localStorage.setItem(onlineSessionKey(session.matchID), JSON.stringify(session));
+}
+function loadOnlineSession(matchID: string): OnlineRoomSession | null {
+  try { const value = localStorage.getItem(onlineSessionKey(matchID)); return value ? JSON.parse(value) as OnlineRoomSession : null; }
+  catch { return null; }
+}
 function readLocalSave(): LocalSave | null {
   try {
     const raw = localStorage.getItem(localSaveKey);
@@ -47,7 +58,7 @@ function makeLocalGame(bots: number[], names: string[]) {
   };
 }
 function App() {
-  const [screen, setScreen] = useState<'home' | 'game'>('home');
+  const [screen, setScreen] = useState<'home' | 'waiting' | 'game'>('home');
   const [client, setClient] = useState<AnyClient | null>(null);
   const [snapshot, setSnapshot] = useState<any>(null);
   const [playerCount, setPlayerCount] = useState(2);
@@ -55,10 +66,17 @@ function App() {
   const [playerNames, setPlayerNames] = useState(['玩家1', '玩家2', '玩家3', '玩家4']);
   const [botDifficulty, setBotDifficulty] = useState<BotDifficulty>('normal');
   const [activeBotSeats, setActiveBotSeats] = useState<number[]>([]);
-  const [playerName, setPlayerName] = useState('玩家1');
+  const [playerName, setPlayerName] = useState(() => localStorage.getItem(onlineNameKey) || '玩家1');
+  const [onlinePlayerCount, setOnlinePlayerCount] = useState(2);
+  const [onlineBotCount, setOnlineBotCount] = useState(0);
+  const [onlineBotDifficulty, setOnlineBotDifficulty] = useState<BotDifficulty>('normal');
   const [serverUrl, setServerUrl] = useState(import.meta.env.VITE_GAME_SERVER || 'http://localhost:8000');
-  const [roomCode, setRoomCode] = useState('');
+  const [roomCode, setRoomCode] = useState(() => new URLSearchParams(window.location.search).get('room') || '');
   const [roomInfo, setRoomInfo] = useState('');
+  const [openRooms, setOpenRooms] = useState<LobbyRoom[]>([]);
+  const [onlineRoom, setOnlineRoom] = useState<OnlineRoomSession | null>(null);
+  const [roomMatch, setRoomMatch] = useState<LobbyRoom | null>(null);
+  const [remoteBotClients, setRemoteBotClients] = useState<{ seat: number; client: AnyClient }[]>([]);
   const [busy, setBusy] = useState(false);
   const [savedLocal, setSavedLocal] = useState<LocalSave | null>(readLocalSave);
   const [localConfig, setLocalConfig] = useState<Omit<LocalSave, 'state' | 'initialState' | 'log' | 'savedAt' | 'version' | 'botNames'> | null>(null);
@@ -90,29 +108,109 @@ function App() {
     setClient(c); setActiveBotSeats(saved.botSeats); setPlayerNames(saved.playerNames); setBotDifficulty(saved.botDifficulty); setScreen('game');
     setRoomInfo(saved.botSeats.length === saved.playerCount ? `已恢复 · 全部由${saved.botDifficulty === 'expert' ? '专家' : '普通'}机器人操控` : saved.botSeats.length ? `已恢复本地混合对局 · ${saved.botDifficulty === 'expert' ? '专家' : '普通'}机器人 × ${saved.botSeats.length}` : '已恢复本地热座对局');
   };
-  useEffect(() => { if (savedLocal) resumeLocal(); }, []);
-  const createRoom = async () => {
-    setBusy(true); setRoomInfo('正在连接游戏服务…');
+  useEffect(() => { if (savedLocal && !new URLSearchParams(window.location.search).has('room')) resumeLocal(); }, []);
+  const setSavedName = (value: string) => {
+    setPlayerName(value);
+    localStorage.setItem(onlineNameKey, value);
+  };
+  const refreshRooms = async () => {
     try {
       const lobby = new LobbyClient({ server: serverUrl });
-      const created = await lobby.createMatch(gameName, { numPlayers: playerCount });
-      const joined = await lobby.joinMatch(gameName, created.matchID, { playerName });
-      const c = Client({ game: HeavenAle, multiplayer: SocketIO({ server: serverUrl }), matchID: created.matchID, playerID: String(joined.playerID), credentials: joined.playerCredentials, debug: false });
-      c.start(); setLocalConfig(null); setClient(c); setActiveBotSeats([]); setRoomCode(created.matchID); setRoomInfo(`房间 ${created.matchID} 已创建。分享房间号，其他玩家可从首页加入。`); setScreen('game');
+      const result = await lobby.listMatches(gameName, { isGameover: false });
+      setOpenRooms((result.matches || []) as LobbyRoom[]);
+    } catch { /* the lobby can be sleeping while Render wakes up */ }
+  };
+  useEffect(() => {
+    if (screen !== 'home') return;
+    void refreshRooms();
+    const timer = window.setInterval(() => void refreshRooms(), 7000);
+    return () => window.clearInterval(timer);
+  }, [screen, serverUrl]);
+  const matchAsRoom = (match: any): LobbyRoom => ({ matchID: match.matchID, players: match.players || [], gameover: match.gameover, updatedAt: match.updatedAt });
+  const enterWaitingRoom = async (session: OnlineRoomSession, match: any) => {
+    saveOnlineSession(session);
+    setOnlineRoom(session); setRoomMatch(matchAsRoom(match)); setRoomCode(session.matchID);
+    const url = new URL(window.location.href); url.searchParams.set('room', session.matchID); window.history.replaceState({}, '', url);
+    setScreen('waiting'); setRoomInfo('');
+  };
+  const createRoom = async () => {
+    const name = playerName.trim() || '玩家1'; setSavedName(name);
+    const count = onlinePlayerCount;
+    const botSeats = Array.from({ length: onlineBotCount }, (_, i) => count - onlineBotCount + i);
+    setBusy(true); setRoomInfo('正在创建房间…');
+    try {
+      const lobby = new LobbyClient({ server: serverUrl });
+      const created = await lobby.createMatch(gameName, { numPlayers: count });
+      const host = await lobby.joinMatch(gameName, created.matchID, { playerID: '0', playerName: name });
+      const botCredentials: OnlineRoomSession['botCredentials'] = [];
+      for (const seat of botSeats) {
+        const joinedBot = await lobby.joinMatch(gameName, created.matchID, { playerID: String(seat), playerName: `机器人${seat + 1}` });
+        botCredentials.push({ playerID: String(joinedBot.playerID), credentials: joinedBot.playerCredentials });
+      }
+      const match = await lobby.getMatch(gameName, created.matchID);
+      await enterWaitingRoom({ matchID: created.matchID, playerID: String(host.playerID), credentials: host.playerCredentials, playerName: name, numPlayers: count, host: true, botSeats, botDifficulty: onlineBotDifficulty, botCredentials }, match);
+      void refreshRooms();
     } catch (e) { setRoomInfo(`连接失败：${e instanceof Error ? e.message : '请确认 boardgame.io 服务端已启动。'}`); }
     setBusy(false);
   };
-  const joinRoom = async () => {
-    if (!roomCode.trim()) return;
+  const joinRoom = async (requestedCode = roomCode) => {
+    const code = requestedCode.trim(); if (!code) return;
+    const name = playerName.trim() || '玩家1'; setSavedName(name);
     setBusy(true); setRoomInfo('正在加入房间…');
     try {
       const lobby = new LobbyClient({ server: serverUrl });
-      const joined = await lobby.joinMatch(gameName, roomCode.trim(), { playerName });
-      const c = Client({ game: HeavenAle, multiplayer: SocketIO({ server: serverUrl }), matchID: roomCode.trim(), playerID: String(joined.playerID), credentials: joined.playerCredentials, debug: false });
-      c.start(); setLocalConfig(null); setClient(c); setActiveBotSeats([]); setScreen('game'); setRoomInfo(`已加入房间 ${roomCode.trim()}`);
+      const existing = loadOnlineSession(code);
+      let session: OnlineRoomSession;
+      if (existing) session = { ...existing, playerName: name };
+      else {
+        const joined = await lobby.joinMatch(gameName, code, { playerName: name });
+        const match = await lobby.getMatch(gameName, code);
+        session = { matchID: code, playerID: String(joined.playerID), credentials: joined.playerCredentials, playerName: name, numPlayers: match.players.length, host: false, botSeats: [], botCredentials: [] };
+        await enterWaitingRoom(session, match);
+      }
+      if (existing) await enterWaitingRoom(session, await lobby.getMatch(gameName, code));
+      void refreshRooms();
     } catch (e) { setRoomInfo(`加入失败：${e instanceof Error ? e.message : '请检查房间号和服务器地址。'}`); }
     setBusy(false);
   };
+  const startOnlineGame = async () => {
+    if (!onlineRoom || !roomMatch || roomMatch.players.length < onlineRoom.numPlayers || roomMatch.players.some(p => !p.name)) return;
+    setBusy(true); setRoomInfo('正在连接对局…');
+    try {
+      const makeClient = (playerID: string, credentials: string) => Client({ game: HeavenAle, multiplayer: SocketIO({ server: serverUrl }), matchID: onlineRoom.matchID, playerID, credentials, debug: false });
+      const main = makeClient(onlineRoom.playerID, onlineRoom.credentials);
+      const bots = onlineRoom.botCredentials.map(({ playerID, credentials }) => ({ seat: Number(playerID), client: makeClient(playerID, credentials) }));
+      main.start(); bots.forEach(({ client: botClient }) => botClient.start());
+      setLocalConfig(null); setClient(main); setRemoteBotClients(bots); setActiveBotSeats([]); setBotSeats(onlineRoom.botSeats);
+      setRoomInfo(`线上房间 · ${onlineRoom.matchID}`); setScreen('game');
+    } catch (e) { setRoomInfo(`进入失败：${e instanceof Error ? e.message : '请重试。'}`); }
+    setBusy(false);
+  };
+  const leaveWaitingRoom = async () => {
+    if (onlineRoom) {
+      try {
+        const lobby = new LobbyClient({ server: serverUrl });
+        await lobby.leaveMatch(gameName, onlineRoom.matchID, { playerID: onlineRoom.playerID, credentials: onlineRoom.credentials });
+        for (const bot of onlineRoom.botCredentials) await lobby.leaveMatch(gameName, onlineRoom.matchID, { playerID: bot.playerID, credentials: bot.credentials });
+      } catch { /* room may already have started or expired */ }
+      localStorage.removeItem(onlineSessionKey(onlineRoom.matchID));
+    }
+    const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url);
+    setOnlineRoom(null); setRoomMatch(null); setScreen('home'); setRoomInfo(''); void refreshRooms();
+  };
+  useEffect(() => { if (roomCode && screen === 'home' && !busy) void joinRoom(roomCode); }, []);
+  useEffect(() => {
+    if (screen !== 'waiting' || !onlineRoom) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const match = await new LobbyClient({ server: serverUrl }).getMatch(gameName, onlineRoom.matchID);
+        if (!cancelled) setRoomMatch(matchAsRoom(match));
+      } catch { if (!cancelled) setRoomInfo('无法读取房间状态，房间可能已结束或服务暂时休眠。'); }
+    };
+    void refresh(); const timer = window.setInterval(() => void refresh(), 2500);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [screen, onlineRoom?.matchID, serverUrl]);
 
   useEffect(() => { if (!client) return; const persist = () => {
     if (!localConfig) return;
@@ -125,9 +223,15 @@ function App() {
   persist();
   return () => { unsub(); client.stop(); };
   }, [client, localConfig]);
-  const returnHome = () => { client?.stop(); setClient(null); setSnapshot(null); setScreen('home'); setActiveBotSeats([]); setLocalConfig(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]); setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setBotDifficulty('normal'); };
+  const returnHome = () => { client?.stop(); remoteBotClients.forEach(({ client: botClient }) => botClient.stop()); setRemoteBotClients([]); setClient(null); setSnapshot(null); setScreen('home'); setActiveBotSeats([]); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]); setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setBotDifficulty('normal'); const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url); };
   const abandonLocalGame = () => { localStorage.removeItem(localSaveKey); setSavedLocal(null); returnHome(); };
-  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={activeBotSeats} botDifficulty={botDifficulty} isLocal={!!localConfig} onExit={returnHome} onAbandon={abandonLocalGame} />;
+  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} playerName={onlineRoom?.playerName} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig} onExit={returnHome} onAbandon={abandonLocalGame} />;
+  if (screen === 'waiting' && onlineRoom) {
+    const players = roomMatch?.players || [];
+    const full = players.length >= onlineRoom.numPlayers && players.slice(0, onlineRoom.numPlayers).every(p => !!p.name);
+    const shareUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(onlineRoom.matchID)}`;
+    return <main className="landing waiting-screen"><div className="landing-image" /><header className="topbar"><div className="brand-mark"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><b>天堂与美酒 · 等候室</b></header><section className="waiting-room setup-card"><div className="card-kicker">TABLE {onlineRoom.matchID}</div><h1>{full ? '所有玩家已到齐' : '等待玩家加入'}</h1><p>房主开始游戏前，所有席位需要有人就座。分享此桌的专属链接即可邀请朋友。</p><label>房间链接<div className="share-link-row"><input readOnly value={shareUrl} /><button className="btn btn-light" onClick={() => { void navigator.clipboard?.writeText(shareUrl); setRoomInfo('已复制房间链接。'); }}>复制</button></div></label><div className="waiting-seats">{Array.from({ length: onlineRoom.numPlayers }, (_, seat) => { const occupant = players.find(p => Number(p.id) === seat); return <div className={`waiting-seat ${occupant?.name ? 'is-filled' : ''}`} key={seat}><span className="seat-number">{seat + 1}</span><div><b>{occupant?.name || '等待玩家…'}</b><small>{onlineRoom.botSeats.includes(seat) ? '机器人席位' : occupant?.isConnected ? '已连接' : occupant?.name ? '已加入' : '空位'}</small></div>{occupant?.name && <i />}</div>; })}</div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="waiting-actions"><button className="btn btn-outline" onClick={leaveWaitingRoom}>离开房间</button><button className="btn btn-gold" disabled={!full || busy} onClick={startOnlineGame}>{busy ? '连接中…' : full ? '进入对局' : '等待所有玩家加入'}</button></div><small className="waiting-footnote">房间状态每 2.5 秒自动刷新 · 昵称会保存在此设备</small></section></main>;
+  }
   return <main className="landing">
     <div className="landing-image" />
     <header className="topbar"><div className="brand-mark"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div>在犹如众神天堂般的麦芽酒花园中开怀畅饮！</div><div className="online-status"><i /> 桌游数字版</div></header>
@@ -148,7 +252,7 @@ function App() {
           {botSeats.length > 0 && <label>机器人难度<select value={botDifficulty} onChange={e => setBotDifficulty(e.target.value as BotDifficulty)}><option value="normal">普通 · 约 3 秒/步</option><option value="expert">专家 · 约 12 秒/步</option></select></label>}
           <button className="btn btn-gold" onClick={() => startLocal(playerCount, botSeats, botDifficulty, playerNames)}>开始本地对局 <span>↗</span></button>
         </div>
-        <div className="setup-card online-card"><div className="card-kicker">PLAY TOGETHER</div><h2>线上房间</h2><p>创建私人房间，或输入朋友分享的房间号。</p><label>显示名称<input value={playerName} onChange={e => setPlayerName(e.target.value)} maxLength={18} /></label><label>游戏服务器<input value={serverUrl} onChange={e => setServerUrl(e.target.value)} /></label><div className="online-actions"><button className="btn btn-outline" disabled={busy} onClick={createRoom}>创建房间</button><div className="join-row"><input placeholder="房间号" value={roomCode} onChange={e => setRoomCode(e.target.value)} /><button className="btn btn-light" disabled={busy} onClick={joinRoom}>加入</button></div></div>{roomInfo && <div className="room-message">{roomInfo}</div>}</div>
+        <div className="setup-card online-card"><div className="card-kicker">PLAY TOGETHER</div><h2>线上大厅</h2><p>浏览公开等候桌，或创建一桌并邀请朋友加入。</p><label>玩家名称<input value={playerName} onChange={e => setSavedName(e.target.value)} onBlur={() => { if (!playerName.trim()) setSavedName('玩家1'); }} maxLength={18} /></label><label>游戏服务器<input value={serverUrl} onChange={e => setServerUrl(e.target.value)} /></label><div className="online-create-options"><label>总人数<select value={onlinePlayerCount} onChange={e => { const n = Number(e.target.value); setOnlinePlayerCount(n); setOnlineBotCount(current => Math.min(current, n - 1)); }}><option value={2}>2 人</option><option value={3}>3 人</option><option value={4}>4 人</option></select></label><label>机器人席位<select value={onlineBotCount} onChange={e => setOnlineBotCount(Number(e.target.value))}>{Array.from({ length: onlinePlayerCount }, (_, n) => n < onlinePlayerCount ? <option key={n} value={n}>{n === 0 ? '不加入机器人' : `加入 ${n} 个机器人`}</option> : null).slice(0, onlinePlayerCount)}</select></label></div>{onlineBotCount > 0 && <label>机器人难度<select value={onlineBotDifficulty} onChange={e => setOnlineBotDifficulty(e.target.value as BotDifficulty)}><option value="normal">普通</option><option value="expert">专家</option></select></label>}<div className="online-actions"><button className="btn btn-outline" disabled={busy} onClick={createRoom}>创建等候桌</button><div className="join-row"><input placeholder="房间号 / 链接" value={roomCode} onChange={e => { const v = e.target.value; const match = v.match(/[?&]room=([^&]+)/); setRoomCode(match ? decodeURIComponent(match[1]) : v); }} /><button className="btn btn-light" disabled={busy} onClick={() => void joinRoom()}>加入</button></div></div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="lobby-list-heading"><b>可加入的房间</b><button onClick={() => void refreshRooms()}>刷新</button></div><div className="lobby-room-list">{openRooms.filter(room => room.players?.some(p => p.name)).map(room => { const occupied = room.players.filter(p => p.name).length, cap = room.players.length || 0; return <button className="lobby-room" key={room.matchID} disabled={busy || occupied >= cap} onClick={() => { setRoomCode(room.matchID); void joinRoom(room.matchID); }}><span><b>房间 {room.matchID}</b><small>{room.players.filter(p => p.name).map(p => p.name).join('、')}</small></span><em>{occupied}/{cap} 人 · {occupied >= cap ? '已满' : '等待中'}</em></button>; })}{openRooms.filter(room => room.players?.some(p => p.name)).length === 0 && <div className="lobby-empty">当前没有公开等候桌</div>}</div></div>
       </div>
       <div className="feature-row"><span>✦ 依照官方规则设计</span><span>✦ 共享房间码联机</span><span>✦ 支持 2–4 人</span></div>
     </section>
@@ -156,12 +260,16 @@ function App() {
   </main>;
 }
 
-function GameView({ client, state, roomInfo, roomCode, botSeats, botDifficulty, isLocal, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; botDifficulty: BotDifficulty; isLocal: boolean; onExit: () => void; onAbandon: () => void }) {
+function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClients, playerName, remoteBotDifficulty, botDifficulty, isLocal, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; playerName?: string; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; onExit: () => void; onAbandon: () => void }) {
   const G = state.G as AleState, ctx = state.ctx, currentPlayerIndex = Number(ctx.currentPlayer);
   const currentPlayer = G.players[currentPlayerIndex] ?? G.players[0];
   const gameover = ctx.gameover as { winner?: string; winners?: string[]; draw?: boolean; scores?: number[] } | undefined;
   const winnerIds = gameover?.winners ?? (gameover?.winner !== undefined ? [String(gameover.winner)] : []);
   const moves = (client as any).moves;
+  useEffect(() => {
+    const ownID = Number((client as any).playerID);
+    if (!isLocal && playerName?.trim() && ownID === currentPlayerIndex && G.players[ownID]?.name !== playerName.trim()) moves.setPlayerName?.(playerName.trim());
+  }, [state._stateID, client, playerName, isLocal, currentPlayerIndex]);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
   const [pieceFlights, setPieceFlights] = useState<PieceFlight[]>([]);
   const [deferredGameAction, setDeferredGameAction] = useState<'undoStep' | 'undoAction' | 'confirmAction' | null>(null);
@@ -497,7 +605,8 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, botDifficulty, 
     else if (index >= 6 && index <= 9) placeScoreChoice('B', monkNames[index - 6]);
   };
   return <main className="table-screen">
-    <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={setBotSearchStatus} onBeforeMove={animateBotMove} />
+    {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={setBotSearchStatus} onBeforeMove={animateBotMove} />}
+    {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={setBotSearchStatus} onBeforeMove={animateBotMove} />)}
     {pieceFlights.map(flight => <div key={flight.id} className={`tile-flight ${flight.started ? 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, backgroundPosition: flight.kind === 'resource-marker' ? `${resources.indexOf(flight.resourceKey!) * 25}% center` : flight.kind === 'brewer-marker' || flight.kind === 'meeple' ? tokenSpritePosition(flight.playerColor || 'green') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <img src={`/Images/barrel_goal_${flight.barrelId}.png`} alt="" /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : null}</div>)}
     <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div><div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div><button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
     {G.phase === 'finished' && <div className="game-over-banner"><b>{gameover?.draw ? '平分，共享胜利：' : '获胜者：'}{winnerIds.map(id => G.players[Number(id)]?.name).filter(Boolean).join('、')}</b><span> · </span>{G.players.map((p, i) => <span key={i}>{p.name}：{gameover?.scores?.[i] ?? scoreBreakdown(p).total} 分{i < G.players.length - 1 ? '　' : ''}</span>)}</div>}
@@ -550,6 +659,18 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, botDifficulty, 
     {showAbandonConfirm && <div className="modal-backdrop" onClick={() => setShowAbandonConfirm(false)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="abandon-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowAbandonConfirm(false)}>×</button><span className="eyebrow">ABANDON GAME</span><h2 id="abandon-title">放弃当前对局？</h2><p>放弃后会删除本地存档，无法继续这场对局。</p><div className="confirm-actions"><button className="btn btn-outline" onClick={() => setShowAbandonConfirm(false)}>继续游戏</button><button className="btn btn-danger" onClick={onAbandon}>确认放弃</button></div></div></div>}
     {toast && <div className="toast" onClick={() => setToast('')}>{toast} <span>×</span></div>}
   </main>;
+}
+
+function OnlineBotDriver({ client, seat, name, difficulty, onThinking, onBeforeMove }: { client: AnyClient; seat: number; name: string; difficulty: BotDifficulty; onThinking: (status: { playerID: number; iterations: number } | null) => void; onBeforeMove: (decision: { name: string; args: unknown[] }, current: any) => number }) {
+  useEffect(() => {
+    const syncName = (state: any) => {
+      if (Number(state?.ctx?.currentPlayer) === seat && state?.G?.players?.[seat]?.name !== name) (client as any).moves.setPlayerName?.(name);
+    };
+    const unsubscribe = (client as any).subscribe(syncName);
+    syncName((client as any).getState());
+    return unsubscribe;
+  }, [client, seat, name]);
+  return <BotController client={client} botSeats={[seat]} difficulty={difficulty} onThinking={onThinking} onBeforeMove={onBeforeMove} />;
 }
 
 function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove }: { client: AnyClient; botSeats: number[]; difficulty: BotDifficulty; onThinking: (status: { playerID: number; iterations: number } | null) => void; onBeforeMove: (decision: { name: string; args: unknown[] }, current: any) => number }) {

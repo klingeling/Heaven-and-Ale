@@ -198,6 +198,12 @@ export const HeavenAle: Game<AleState> = {
       if (G.phase === 'play' && G.players[Number(ctx.currentPlayer)]?.retired) events.endTurn();
     } },
   moves: {
+    setPlayerName: ({ G, playerID }, name: string) => {
+      const player = G.players[Number(playerID)];
+      if (!player || typeof name !== 'string') return;
+      const trimmed = name.trim().slice(0, 18);
+      if (trimmed) player.name = trimmed;
+    },
     chooseStartSlot: ({ G, ctx }, slot: number) => {
       const player = G.players[Number(ctx.currentPlayer)];
       if (!player || G.confirmationKind || G.startChoice || ![0, 1, 2, 3].includes(slot)) return;

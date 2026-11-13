@@ -163,11 +163,12 @@ export const HeavenAle: Game<AleState> = {
   setup: ({ ctx, random }) => {
     const count = Math.max(2, Math.min(4, ctx.numPlayers));
     const players = Array.from({ length: count }, (_, i) => emptyPlayer(i, playerColors[i]));
-    players[0].startSlot = 0;
+    const startPlayer = random.Shuffle(Array.from({ length: count }, (_, i) => i))[0] ?? 0;
+    players[startPlayer].startSlot = 0;
     const G: AleState = { players, round: 1,
       maxRounds: count === 2 ? 3 : count === 3 ? 4 : 6, track, resources: [], monks: [], resourceDecks: [], monkDecks: [], scores: [1, 1, 1, 1, 1, 1],
-      barrels: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, remaining: 2 })), phase: 'setup', pending: null, log: ['首位玩家已放在起始玩家格；其他玩家逆时针选择起始奖励。'],
-      startPlayer: 0, firstTurnAfterSetup: false, startChoice: null, undoSnapshot: null, stepUndoSnapshots: [], confirmationKind: null, shedChoices: [], privilegePrompts: [] };
+      barrels: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, remaining: 2 })), phase: 'setup', pending: null, log: [`随机决定${players[startPlayer].name}为首位玩家并放在起始玩家格；其他玩家逆时针选择起始奖励。`],
+      startPlayer, firstTurnAfterSetup: false, startChoice: null, undoSnapshot: null, stepUndoSnapshots: [], confirmationKind: null, shedChoices: [], privilegePrompts: [] };
     makeDeck(G, random, G.maxRounds);
     return G;
   },

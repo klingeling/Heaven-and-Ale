@@ -378,7 +378,7 @@ export const HeavenAle: Game<AleState> = {
         G.log.unshift(`特权卡 C：游戏结束时每个酒桶额外得 1 分。`);
       } else if (card === 'D') {
         saveStepSnapshot(G);
-        p.coins += 12; G.log.unshift(`特权卡 D：获得 12 金币。`);
+        p.coins += 12; G.log.unshift(`特权卡 D：获得12个钱币。`);
       } else if (card === 'E') {
         saveStepSnapshot(G);
         p.brewer = Math.min(20, p.brewer + 5); G.log.unshift(`特权卡 E：酿酒师向前推进 5 格。`);
@@ -394,7 +394,7 @@ export const HeavenAle: Game<AleState> = {
       saveStepSnapshot(G);
       p.privileges = p.privileges.filter(c => c !== card);
       p.coins += 3;
-      G.log.unshift(`${p.name} 弃置特权卡 ${card}，获得 3 金币。`);
+      G.log.unshift(`${p.name} 弃置特权卡 ${card}，获得3个钱币。`);
     },
     undoAction: ({ G }) => {
       if (!G.undoSnapshot) return;
@@ -512,9 +512,9 @@ function activateWithSummary(p: PlayerState, tile: Tile, side?: 'sun' | 'shade')
     const coins = p.coins - beforeCoins;
     if (side === 'sun') {
       const steps = p.tracks[tile.resource] - beforeTrack;
-      return `${resourceLabels[tile.resource]}（向阳）+${steps} 格${coins > 0 ? `、金币 +${coins}` : ''}`;
+      return `${resourceLabels[tile.resource]}（向阳）+${steps} 格${coins > 0 ? `、钱币 +${coins}` : ''}`;
     }
-    return `${resourceLabels[tile.resource]}（阴凉）金币 +${coins}`;
+    return `${resourceLabels[tile.resource]}（阴凉）钱币 +${coins}`;
   }
   const brewerSteps = p.brewer - beforeBrewer;
   return `${monkIconToken(tile.monk)}激活，酿酒师 +${brewerSteps} 格`;
@@ -585,7 +585,7 @@ function finishRound(G: AleState) {
   if (!G.players.every(p => p.retired)) return;
   if (G.round >= G.maxRounds) {
     G.players.forEach(applyFinalResourceAdjustments);
-    G.log.unshift('最后一轮结束：所有玩家完成资源交换与金币兑换，开始终局计分。');
+    G.log.unshift('最后一轮结束：所有玩家完成资源交换与钱币兑换，开始终局计分。');
     G.phase = 'finished'; return;
   }
   G.startPlayer = G.players.findIndex(p => p.startSlot === 0);

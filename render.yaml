@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: heaven-and-ale-test-api-2026
+    runtime: node
+    region: singapore
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run server
+    envVars:
+      - key: CLIENT_ORIGINS
+        value: https://heaven-and-ale-test-web-2026.onrender.com
+
+  - type: web
+    name: heaven-and-ale-test-web-2026
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_GAME_SERVER
+        value: https://heaven-and-ale-test-api-2026.onrender.com

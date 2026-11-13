@@ -544,11 +544,20 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     if (!board || !source) return 0;
     const boardRect = board.getBoundingClientRect(), sourceRect = source.getBoundingClientRect(), position = privilegeCardPositions[pairIndex];
     if (sourceRect.width < 2 || sourceRect.height < 2) return 0;
-    const height = boardRect.height * position.height / 100;
-    const width = height * (source.naturalWidth / Math.max(1, source.naturalHeight));
-    const left = boardRect.right - width * .18 - width;
-    const top = boardRect.top + boardRect.height * position.top / 100 - height / 2;
-    return startPieceFlight('privilege-card', source, { left, top, width, height }, { card, pairIndex, playerIndex });
+    const aspect = source.naturalWidth / Math.max(1, source.naturalHeight);
+    const boardLeft = boardRect.left + board.clientLeft, boardTop = boardRect.top + board.clientTop;
+    const boardWidth = board.clientWidth, boardHeight = board.clientHeight;
+    const height = boardHeight * position.height / 100;
+    const width = height * aspect;
+    const left = boardLeft + boardWidth - width * .18 - width;
+    const top = boardTop + boardHeight * position.top / 100 - height / 2;
+    // The hand thumbnail is cropped into a tall slot, while the board card is
+    // landscape. Start with a fitted landscape rect so the flight keeps the
+    // card's 1.6:1 shape and lands at the exact clipped board-card bounds.
+    const flightHeight = Math.min(sourceRect.height, sourceRect.width / aspect);
+    const flightWidth = flightHeight * aspect;
+    const from = { left: sourceRect.left + (sourceRect.width - flightWidth) / 2, top: sourceRect.top + (sourceRect.height - flightHeight) / 2, width: flightWidth, height: flightHeight };
+    return startPieceFlightFromRects('privilege-card', from, { left, top, width, height }, { card, pairIndex, playerIndex });
   };
   const startTileFlight = (tile: Tile, index: number) => {
     const findTileElement = (selector: string, id: string) => [...document.querySelectorAll<HTMLElement>(selector)].find(element => element.dataset.tileId === id || element.dataset.shopTileId === id);

@@ -20,6 +20,8 @@ type LocalSave = { version: 1; playerCount: number; botSeats: number[]; botDiffi
 type OnlineRoomSession = { matchID: string; playerID: string; credentials: string; playerName: string; numPlayers: number; host: boolean; botSeats: number[]; botDifficulty?: BotDifficulty; botCredentials: { playerID: string; credentials: string }[] };
 type LobbyRoom = { matchID: string; players: { id: number; name?: string; isConnected?: boolean; data?: Record<string, unknown> }[]; gameover?: unknown; updatedAt?: number };
 type BotSearchUpdate = { playerID: number; iterations: number; thinking: boolean; updatedAt: number };
+type UndoVoteRecord = { proposalId: string; stateID: number; kind: 'undoStep' | 'undoAction'; yes: boolean; proposal?: boolean; createdAt: number };
+type SharedUndoVote = { playerID: number; vote: UndoVoteRecord };
 const onlineNameKey = 'heaven-and-ale-online-player-name-v1';
 const onlineSessionKey = (matchID: string) => `heaven-and-ale-online-room-${matchID}`;
 const onlineSessionPrefix = 'heaven-and-ale-online-room-';
@@ -161,7 +163,7 @@ function App() {
       const host = await lobby.joinMatch(gameName, created.matchID, { playerID: '0', playerName: name });
       const botCredentials: OnlineRoomSession['botCredentials'] = [];
       for (const seat of botSeats) {
-        const joinedBot = await lobby.joinMatch(gameName, created.matchID, { playerID: String(seat), playerName: `机器人${seat + 1}` });
+        const joinedBot = await lobby.joinMatch(gameName, created.matchID, { playerID: String(seat), playerName: `机器人${seat + 1}`, data: { isBot: true, botDifficulty: onlineBotDifficulty } });
         botCredentials.push({ playerID: String(joinedBot.playerID), credentials: joinedBot.playerCredentials });
       }
       const match = await lobby.getMatch(gameName, created.matchID);
@@ -178,14 +180,20 @@ function App() {
       const lobby = new LobbyClient({ server: serverUrl });
       const existing = loadOnlineSession(code);
       let session: OnlineRoomSession;
-      if (existing) session = { ...existing, playerName: name };
-      else {
+      if (existing) {
+        const match = await lobby.getMatch(gameName, code);
+        const botSeats = match.players.filter(player => player.data?.isBot === true).map(player => Number(player.id));
+        const botDifficulty = (match.players.find(player => player.data?.isBot === true)?.data?.botDifficulty as BotDifficulty | undefined) || existing.botDifficulty;
+        session = { ...existing, playerName: name, botSeats, botDifficulty };
+        await enterWaitingRoom(session, match);
+      } else {
         const joined = await lobby.joinMatch(gameName, code, { playerName: name });
         const match = await lobby.getMatch(gameName, code);
-        session = { matchID: code, playerID: String(joined.playerID), credentials: joined.playerCredentials, playerName: name, numPlayers: match.players.length, host: false, botSeats: [], botCredentials: [] };
+        const botSeats = match.players.filter(player => player.data?.isBot === true).map(player => Number(player.id));
+        const botDifficulty = match.players.find(player => player.data?.isBot === true)?.data?.botDifficulty as BotDifficulty | undefined;
+        session = { matchID: code, playerID: String(joined.playerID), credentials: joined.playerCredentials, playerName: name, numPlayers: match.players.length, host: false, botSeats, botDifficulty, botCredentials: [] };
         await enterWaitingRoom(session, match);
       }
-      if (existing) await enterWaitingRoom(session, await lobby.getMatch(gameName, code));
       void refreshRooms();
     } catch (e) { setRoomInfo(`加入失败：${e instanceof Error ? e.message : '请检查房间号和服务器地址。'}`); }
     setBusy(false);
@@ -274,6 +282,18 @@ function App() {
       });
     } catch { /* search telemetry is best-effort; it must not interrupt the bot */ }
   };
+  const publishUndoVote = async (vote: UndoVoteRecord) => {
+    if (!onlineRoom) return;
+    const own = roomMatch?.players.find(player => Number(player.id) === Number(onlineRoom.playerID));
+    try {
+      await new LobbyClient({ server: serverUrl }).updatePlayer(gameName, onlineRoom.matchID, {
+        playerID: onlineRoom.playerID, credentials: onlineRoom.credentials,
+        data: { ...(own?.data || {}), undoVote: vote },
+      });
+      const match = await new LobbyClient({ server: serverUrl }).getMatch(gameName, onlineRoom.matchID);
+      setRoomMatch(matchAsRoom(match));
+    } catch (e) { setRoomInfo(`撤回投票同步失败：${e instanceof Error ? e.message : '请重试。'}`); }
+  };
   useEffect(() => { if (roomCode && screen === 'home' && !busy) void joinRoom(roomCode); }, []);
   useEffect(() => {
     if ((screen !== 'waiting' && screen !== 'game') || !onlineRoom) return;
@@ -304,7 +324,7 @@ function App() {
   }, [client, localConfig]);
   const returnHome = () => { client?.stop(); remoteBotClients.forEach(({ client: botClient }) => botClient.stop()); setRemoteBotClients([]); setClient(null); setSnapshot(null); setScreen('home'); setActiveBotSeats([]); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]); setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setBotDifficulty('normal'); const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url); };
   const abandonLocalGame = () => { localStorage.removeItem(localSaveKey); setSavedLocal(null); returnHome(); };
-  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
+  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} sharedUndoVotes={(roomMatch?.players.map(player => player.data?.undoVote ? { playerID: Number(player.id), vote: player.data.undoVote as UndoVoteRecord } : null).filter(Boolean) || []) as SharedUndoVote[]} onOnlineUndoVote={publishUndoVote} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
   if (screen === 'waiting' && onlineRoom) {
     const players = roomMatch?.players || [];
     const full = players.length >= onlineRoom.numPlayers && players.slice(0, onlineRoom.numPlayers).every(p => !!p.name);
@@ -342,7 +362,7 @@ function App() {
   </main>;
 }
 
-function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClients, playerName, onlinePlayerNames, remoteBotDifficulty, botDifficulty, isLocal, onlineVoteState, sharedBotSearches, onBotSearchUpdate, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; playerName?: string; onlinePlayerNames?: string[]; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; onlineVoteState: { votes: number[]; passed: boolean }; sharedBotSearches: BotSearchUpdate[]; onBotSearchUpdate: (status: BotSearchUpdate | null) => void; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
+function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClients, playerName, onlinePlayerNames, remoteBotDifficulty, botDifficulty, isLocal, onlineVoteState, sharedBotSearches, onBotSearchUpdate, sharedUndoVotes, onOnlineUndoVote, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; playerName?: string; onlinePlayerNames?: string[]; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; onlineVoteState: { votes: number[]; passed: boolean }; sharedBotSearches: BotSearchUpdate[]; onBotSearchUpdate: (status: BotSearchUpdate | null) => void; sharedUndoVotes: SharedUndoVote[]; onOnlineUndoVote: (vote: UndoVoteRecord) => void; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
   const rawG = state.G as AleState;
   const G = onlinePlayerNames ? { ...rawG, players: rawG.players.map((player, i) => onlinePlayerNames[i] ? { ...player, name: onlinePlayerNames[i] } : player) } as AleState : rawG;
   const ctx = state.ctx, currentPlayerIndex = Number(ctx.currentPlayer);
@@ -368,6 +388,8 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
   const [toast, setToast] = useState('');
   const [botSearchStatus, setBotSearchStatus] = useState<{ playerID: number; iterations: number } | null>(null);
+  const [localUndoVotes, setLocalUndoVotes] = useState<SharedUndoVote[]>([]);
+  const executedUndoProposalsRef = React.useRef(new Set<string>());
   const onBotSearchUpdateRef = React.useRef(onBotSearchUpdate);
   const lastBotStatusRef = React.useRef<{ playerID: number; iterations: number } | null>(null);
   const lastBotStatusSyncRef = React.useRef(0);
@@ -401,6 +423,39 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const sharedActiveBotSearch = sharedBotSearches.find(search => search.playerID === activeSeat && Date.now() - search.updatedAt < 12000);
   const activeBotSearch = botSearchStatus?.playerID === activeSeat ? botSearchStatus : sharedActiveBotSearch?.thinking ? sharedActiveBotSearch : undefined;
   const canControlTurn = ownsCurrentTurn && !isBotTurn && !onlineVoteState.passed;
+  const undoStateID = Number(state._stateID ?? 0);
+  const eligibleUndoSeats = G.players.map((_, index) => index).filter(index => !botSeats.includes(index));
+  const undoVoteRecords = (isLocal ? localUndoVotes : sharedUndoVotes).filter(entry => entry.vote.stateID === undoStateID);
+  const undoProposal = [...undoVoteRecords].filter(entry => entry.vote.proposal).sort((a, b) => b.vote.createdAt - a.vote.createdAt)[0]?.vote;
+  const activeUndoVotes = undoProposal ? undoVoteRecords.filter(entry => entry.vote.proposalId === undoProposal.proposalId) : [];
+  const undoVoteYes = new Set(activeUndoVotes.filter(entry => entry.vote.yes).map(entry => entry.playerID));
+  const undoVoteRejected = activeUndoVotes.some(entry => !entry.vote.yes);
+  const undoVotePassed = !!undoProposal && !undoVoteRejected && eligibleUndoSeats.every(seat => undoVoteYes.has(seat));
+  const undoProposalVote = (kind: 'undoStep' | 'undoAction') => {
+    const now = Date.now();
+    const proposal: UndoVoteRecord = { proposalId: `${undoStateID}-${now}-${Math.random().toString(36).slice(2, 7)}`, stateID: undoStateID, kind, yes: true, proposal: true, createdAt: now };
+    if (isLocal) {
+      const proposer = eligibleUndoSeats.includes(ownPlayerIndex) ? ownPlayerIndex : eligibleUndoSeats[0];
+      if (proposer !== undefined) setLocalUndoVotes(current => [...current.filter(entry => entry.playerID !== proposer), { playerID: proposer, vote: proposal }]);
+    } else onOnlineUndoVote(proposal);
+  };
+  const castUndoVote = (seat: number, yes: boolean) => {
+    if (!undoProposal || !eligibleUndoSeats.includes(seat)) return;
+    const vote: UndoVoteRecord = { proposalId: undoProposal.proposalId, stateID: undoStateID, kind: undoProposal.kind, yes, createdAt: undoProposal.createdAt };
+    if (isLocal) setLocalUndoVotes(current => [...current.filter(entry => entry.playerID !== seat), { playerID: seat, vote }]);
+    else if (seat === ownPlayerIndex) onOnlineUndoVote(vote);
+  };
+  useEffect(() => {
+    if (!undoProposal || !undoVotePassed || executedUndoProposalsRef.current.has(undoProposal.proposalId)) return;
+    let undoClient: AnyClient | null = null;
+    if (isLocal) undoClient = client;
+    else if (!isBotTurn && ownsCurrentTurn) undoClient = client;
+    else if (isBotTurn) undoClient = remoteBotClients.find(entry => entry.seat === currentPlayerIndex)?.client ?? null;
+    if (!undoClient) return;
+    executedUndoProposalsRef.current.add(undoProposal.proposalId);
+    (undoClient as any).moves[undoProposal.kind]?.();
+  }, [undoProposal?.proposalId, undoVotePassed, isLocal, isBotTurn, ownsCurrentTurn, client, remoteBotClients, currentPlayerIndex]);
+  useEffect(() => { setLocalUndoVotes(current => current.filter(entry => entry.vote.stateID === undoStateID)); }, [undoStateID]);
   const canMove = canControlTurn && !action && !G.confirmationKind && !G.privilegePrompts.length && !currentPlayer.retired && G.phase === 'play';
   const trackMove = (index: number) => { if (!canMove || !canMoveTo(G, currentPlayer, index)) return 0; const moveTime = animateMeepleMove(currentPlayerIndex, index); const barrelTime = G.track[index]?.type === 'barrel' ? animateBarrels(currentPlayerIndex) : 0; moves.moveTo(index); setSelectedTileId(null); return Math.max(moveTime, barrelTime); };
   const currentActionSpace = action ? G.track[action.space] : null;
@@ -747,13 +802,33 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
           {activeShedChoice && <div className="action-panel shed-choice-panel"><span className="eyebrow">SHED BONUS</span><h3>棚屋奖励 · 周围产值 {activeShedChoice.value}</h3><p>酿酒师轨道 +{activeShedChoice.brewerAdvance} 格。请选择激活的相邻板块：{shedChoiceInstruction(activeShedChoice)}</p><div className="shed-choice-status">已选 {activeShedChoice.selected.length} / {activeShedChoice.activateCount} 块 · 点击花园中高亮的相邻板块</div><button className="btn btn-gold" disabled={!canControlTurn || !validShedSelection(activeShedChoice)} onClick={completeShedChoice}>完成棚屋激活选择</button></div>}
           {!isLocal && !onlineVoteState.passed && !canControlTurn && G.confirmationKind && <div className="action-confirm-bar spectator-waiting"><b>{isBotTurn ? `${currentPlayer.name} 正在处理本次行动` : `等待 ${currentPlayer.name} 确认行动`}</b><span>对方确认后将继续</span></div>}
           {isBotTurn && <div className="action-confirm-bar bot-action-status"><b>{currentPlayer.name} 正在思考</b><span>搜索次数：{activeBotSearch?.iterations ?? 0}</span></div>}
-          {G.undoSnapshot && canControlTurn && <div className="action-confirm-bar"><span>{G.confirmationKind ? '行动已完成，请确认或撤回。' : activeShedChoice ? '请选择棚屋奖励板块，或撤回整次行动。' : action?.type === 'resource' || action?.type === 'monk' ? '可继续购买；结束购买后可确认或撤回整次行动。' : '可以撤回当前选择，重新选行动格。'}</span>{G.stepUndoSnapshots?.length ? <button className="btn btn-undo" onClick={() => requestGameAction('undoStep')}>撤回上一步</button> : null}<button className="btn btn-undo" onClick={() => requestGameAction('undoAction')}>撤回整次行动</button>{G.confirmationKind && <button className="btn btn-gold btn-confirm" onClick={() => requestGameAction('confirmAction')}>确认行动</button>}</div>}
+          {G.undoSnapshot && <div className="action-confirm-bar undo-vote-panel">
+            <span>{G.confirmationKind ? '行动已完成。撤回需所有真实玩家同意。' : '本次行动可撤回；需要所有真实玩家同意。'}</span>
+            {!undoProposal && canControlTurn && <>
+              {G.stepUndoSnapshots?.length ? <button className="btn btn-undo" onClick={() => undoProposalVote('undoStep')}>提议撤回上一步</button> : null}
+              <button className="btn btn-undo" onClick={() => undoProposalVote('undoAction')}>提议撤回整次行动</button>
+            </>}
+            {undoProposal && <div className="undo-vote-details">
+              <b>{undoProposal.kind === 'undoStep' ? '撤回上一步' : '撤回整次行动'} · {undoVotePassed ? '全员同意，正在撤回' : undoVoteRejected ? '有人反对，提议未通过' : `已同意 ${undoVoteYes.size}/${eligibleUndoSeats.length}`}</b>
+              <div className="undo-vote-players">{eligibleUndoSeats.map(seat => {
+                const record = activeUndoVotes.find(entry => entry.playerID === seat)?.vote;
+                const status = record ? record.yes ? '已同意' : '反对' : '待投票';
+                return <span className={`undo-voter ${record ? record.yes ? 'voted-yes' : 'voted-no' : ''}`} key={seat}>
+                  {G.players[seat].name}：{status}
+                  {isLocal && !record && <><button onClick={() => castUndoVote(seat, true)}>同意</button><button onClick={() => castUndoVote(seat, false)}>反对</button></>}
+                  {!isLocal && seat === ownPlayerIndex && !record && <><button onClick={() => castUndoVote(seat, true)}>同意</button><button onClick={() => castUndoVote(seat, false)}>反对</button></>}
+                </span>;
+              })}</div>
+              {undoVoteRejected && canControlTurn && <button className="btn btn-undo" onClick={() => undoProposalVote(undoProposal.kind)}>重新提议</button>}
+            </div>}
+            {G.confirmationKind && canControlTurn && (!undoProposal || undoVoteRejected) && <button className="btn btn-gold btn-confirm" onClick={() => requestGameAction('confirmAction')}>确认行动</button>}
+          </div>}
         </div>
       </section>
       <aside className={`right-rail ${!isViewingOwn ? 'is-inspecting-opponent' : ''}`}><div className="garden-heading"><div><h2>{me.name}的修道院</h2>{!isViewingOwn && <small className="inspection-hint">正在查看对手版图 · 只读</small>}</div><div className="garden-legend"></div></div><div className="garden-board-reserved"><Garden player={me} playerIndex={viewingPlayerIndex} pieceFlights={pieceFlights} selectedTile={isViewingCurrent && canPlace ? selectedTile : undefined} sourceIndex={currentActionSpace?.sourceIndex} coins={activePlayer.coins} canPlace={isViewingCurrent && canPlace} activePlayer={me} shedChoice={isViewingCurrent && canControlTurn ? activeShedChoice : undefined} flightTileId={pieceFlights.find(flight => flight.kind === 'tile')?.tile?.id} flightTargetIndex={pieceFlights.find(flight => flight.kind === 'tile')?.targetIndex} flightScoreIndex={pieceFlights.find(flight => flight.kind === 'disc')?.scoreIndex} scoreTargetIndices={scoreTargetIndices} onScoreTarget={placeScoreFromBoard} onShedToggle={(i) => { if (canControlTurn && isViewingCurrent) moves.toggleShedChoice(i); }} onSelect={(i) => { if (canControlTurn && isViewingCurrent) placeTile(i); }} cells={garden} /></div><div className="rail-heading">特权卡 · 点击弃置可得3个钱币</div><div className="privileges">{['A', 'B', 'C', 'D', 'E'].filter(card => !me.privilegePairs.includes(card)).map(card => { const inHand = me.privileges.includes(card); const earned = me.privilegePairs.includes(card); const blocked = !canControlTurn || !isViewingCurrent || (!!G.confirmationKind && G.confirmationKind !== 'turn') || !!privilegePrompt; return <div className={`privilege ${inHand ? '' : 'used'}`} data-privilege-card={card} key={card}><img src={`/Images/privilege_card_front_${card}.png`} alt={`特权卡 ${card}`} />{inHand ? <button disabled={blocked} onClick={() => { if (!canControlTurn) return; animatePrivilegeCoins(currentPlayerIndex, card, 3); moves.discardPrivilege(card); }}>弃置 +3</button> : <span>{earned ? '已放置' : '已弃置'}</span>}</div>; })}</div><div className="rail-heading">已领取酒桶 <span className="count">{me.claimedBarrels.length}</span></div><div className="barrel-strip">{me.claimedBarrels.map((b, i) => <span key={`${b.id}-${i}`} className={`barrel-claimed-item ${b.size}`} style={{ visibility: pieceFlights.some(flight => flight.kind === 'barrel' && flight.playerIndex === viewingPlayerIndex && flight.barrelId === b.id && flight.barrelSize === b.size) ? 'hidden' : 'visible' }} title={`目标 ${b.id}：${barrelGoals[b.id - 1]} ${b.size === 'large' ? '大酒桶，4分' : '小酒桶，2分'}`}><img src={`/Images/barrel_goal_${b.id}.png`} alt={`目标 ${b.id}`} /><small>{b.size === 'large' ? '大 · 4分' : '小 · 2分'}</small></span>)}</div><div className="score-summary"><span>当前钱币</span><b><i className="player-coin-icon" aria-label="钱币" /> {me.coins}</b><span>酒桶计分</span><b>{me.claimedBarrels.reduce((n, b) => n + (b.size === 'large' ? 4 : 2), 0) + (me.privilegePairs.includes('C') ? me.claimedBarrels.length : 0)} 分</b></div></aside>
       <aside className="far-right-rail"><div className="rail-heading">玩家信息 · 点击查看版图</div><div className="player-roster">{G.players.map((p, i) => {
         const scoring = scoreBreakdown(p); const searchStatus = botSearchStatus?.playerID === i ? botSearchStatus : sharedBotSearches.find(status => status.playerID === i && status.thinking && Date.now() - status.updatedAt < 12000); return <div className={`player-info-unit ${i === viewingPlayerIndex ? 'is-viewing' : ''}`} data-player-index={i} key={i} role="button" tabIndex={0} aria-label={`查看${p.name}的玩家版图`} onClick={() => setViewingPlayerIndex(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingPlayerIndex(i); } }}>
-          <div className={`player-card ${i === Number(ctx.currentPlayer) ? 'is-turn' : ''} ${p.retired ? 'is-done' : ''}`}><div className={`avatar ${p.color}`}>{p.name.slice(-1)}</div><div className="player-name"><span className="player-name-score">{p.name}<b title="实时计分">★ {scoring.total}</b></span><small>{botSeats.includes(i) ? `${botDifficulty === 'expert' ? '专家' : '普通'}机器人${i === Number(ctx.currentPlayer) ? searchStatus ? ` · 搜索中 ${searchStatus.iterations} 次` : ' · 正在行动' : ''}` : p.retired ? '本轮已休息' : i === Number(ctx.currentPlayer) ? '正在行动' : '等待中'}</small></div><div className="money"><i className="player-coin-icon" aria-label="钱币" /> {p.coins}</div></div>
+          <div className={`player-card ${i === Number(ctx.currentPlayer) ? 'is-turn' : ''} ${p.retired ? 'is-done' : ''}`}><div className={`avatar ${p.color}`}>{p.name.slice(-1)}</div><div className="player-name"><span className="player-name-score">{p.name}{i === ownPlayerIndex && <b className="self-player-badge">你</b>}<b title="实时计分">★ {scoring.total}</b></span><small>{botSeats.includes(i) ? `${botDifficulty === 'expert' ? '专家' : '普通'}机器人${i === Number(ctx.currentPlayer) ? searchStatus ? ` · 搜索中 ${searchStatus.iterations} 次` : ' · 正在行动' : ''}` : p.retired ? '本轮已休息' : i === Number(ctx.currentPlayer) ? '正在行动' : '等待中'}</small></div><div className="money"><i className="player-coin-icon" aria-label="钱币" /> {p.coins}</div></div>
           <div className="player-live-details" title={`按当前状态预演终局：资源归并后最低为 ${scoring.minResource}，生产 ${scoring.productionScore} 分；酒桶 ${scoring.barrelScore} 分；起始奖励 ${scoring.startBonus} 分。`}>
             <div className="player-info-table">
               <div className="player-info-row resource-icon-row">{resources.map(resource => <span key={resource} className="resource-stat" title={`${resourceLabels[resource]}：${p.tracks[resource]}`}><img className="player-board-resource" src={`/Images/resource_icon_${resource}.png`} alt="" /><b>{p.tracks[resource]}</b></span>)}</div>

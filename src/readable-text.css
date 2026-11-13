@@ -74,6 +74,7 @@
 .base-value{color:#eee0bf}
 .player-name-score{display:flex;align-items:baseline;gap:8px;white-space:nowrap}
 .player-name-score>b{color:#f1d48f;font-size:11px;line-height:1}
+.player-name-score>.self-player-badge{padding:2px 5px;border-radius:9px;background:#e3c47c;color:#263127;font-size:9px;line-height:1}
 .far-right-rail .money{display:flex;align-items:center;gap:4px}
 .score-summary b{display:flex;align-items:center;gap:4px}
 

@@ -198,6 +198,20 @@ function App() {
     const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url);
     setOnlineRoom(null); setRoomMatch(null); setScreen('home'); setRoomInfo(''); void refreshRooms();
   };
+  const updateRoomName = async () => {
+    if (!onlineRoom) return;
+    const name = playerName.trim().slice(0, 18);
+    if (!name) { setRoomInfo('名称不能为空。'); return; }
+    setBusy(true);
+    try {
+      await new LobbyClient({ server: serverUrl }).updatePlayer(gameName, onlineRoom.matchID, { playerID: onlineRoom.playerID, credentials: onlineRoom.credentials, newName: name });
+      const updated = { ...onlineRoom, playerName: name };
+      setOnlineRoom(updated); saveOnlineSession(updated); setSavedName(name); setRoomInfo('玩家名称已更新。');
+      const match = await new LobbyClient({ server: serverUrl }).getMatch(gameName, onlineRoom.matchID);
+      setRoomMatch(matchAsRoom(match));
+    } catch (e) { setRoomInfo(`名称更新失败：${e instanceof Error ? e.message : '请重试。'}`); }
+    setBusy(false);
+  };
   useEffect(() => { if (roomCode && screen === 'home' && !busy) void joinRoom(roomCode); }, []);
   useEffect(() => {
     if (screen !== 'waiting' || !onlineRoom) return;
@@ -230,7 +244,7 @@ function App() {
     const players = roomMatch?.players || [];
     const full = players.length >= onlineRoom.numPlayers && players.slice(0, onlineRoom.numPlayers).every(p => !!p.name);
     const shareUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(onlineRoom.matchID)}`;
-    return <main className="landing waiting-screen"><div className="landing-image" /><header className="topbar"><div className="brand-mark"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><b>天堂与美酒 · 等候室</b></header><section className="waiting-room setup-card"><div className="card-kicker">TABLE {onlineRoom.matchID}</div><h1>{full ? '所有玩家已到齐' : '等待玩家加入'}</h1><p>房主开始游戏前，所有席位需要有人就座。分享此桌的专属链接即可邀请朋友。</p><label>房间链接<div className="share-link-row"><input readOnly value={shareUrl} /><button className="btn btn-light" onClick={() => { void navigator.clipboard?.writeText(shareUrl); setRoomInfo('已复制房间链接。'); }}>复制</button></div></label><div className="waiting-seats">{Array.from({ length: onlineRoom.numPlayers }, (_, seat) => { const occupant = players.find(p => Number(p.id) === seat); return <div className={`waiting-seat ${occupant?.name ? 'is-filled' : ''}`} key={seat}><span className="seat-number">{seat + 1}</span><div><b>{occupant?.name || '等待玩家…'}</b><small>{onlineRoom.botSeats.includes(seat) ? '机器人席位' : occupant?.isConnected ? '已连接' : occupant?.name ? '已加入' : '空位'}</small></div>{occupant?.name && <i />}</div>; })}</div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="waiting-actions"><button className="btn btn-outline" onClick={leaveWaitingRoom}>离开房间</button><button className="btn btn-gold" disabled={!full || busy} onClick={startOnlineGame}>{busy ? '连接中…' : full ? '进入对局' : '等待所有玩家加入'}</button></div><small className="waiting-footnote">房间状态每 2.5 秒自动刷新 · 昵称会保存在此设备</small></section></main>;
+    return <main className="landing waiting-screen"><div className="landing-image" /><header className="topbar"><div className="brand-mark"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><b>天堂与美酒 · 等候室</b></header><section className="waiting-room setup-card"><div className="card-kicker">TABLE {onlineRoom.matchID}</div><h1>{full ? '所有玩家已到齐' : '等待玩家加入'}</h1><p>房主开始游戏前，所有席位需要有人就座。分享此桌的专属链接即可邀请朋友加入。</p><label>你的玩家名称<div className="share-link-row"><input value={playerName} maxLength={18} onChange={e => setSavedName(e.target.value)} /><button className="btn btn-light" disabled={busy} onClick={() => void updateRoomName()}>更新名称</button></div></label><label>房间链接<div className="share-link-row"><input readOnly value={shareUrl} /><button className="btn btn-light" onClick={() => { void navigator.clipboard?.writeText(shareUrl); setRoomInfo('已复制房间链接。'); }}>复制</button></div></label><div className="waiting-seats">{Array.from({ length: onlineRoom.numPlayers }, (_, seat) => { const occupant = players.find(p => Number(p.id) === seat); return <div className={`waiting-seat ${occupant?.name ? 'is-filled' : ''}`} key={seat}><span className="seat-number">{seat + 1}</span><div><b>{occupant?.name || '等待玩家…'}</b><small>{onlineRoom.botSeats.includes(seat) ? '机器人席位' : occupant?.isConnected ? '已连接' : occupant?.name ? '已加入' : '空位'}</small></div>{occupant?.name && <i />}</div>; })}</div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="waiting-actions"><button className="btn btn-outline" onClick={leaveWaitingRoom}>离开房间</button><button className="btn btn-gold" disabled={!full || busy} onClick={startOnlineGame}>{busy ? '连接中…' : full ? '进入对局' : '等待所有玩家加入'}</button></div><small className="waiting-footnote">房间状态每 2.5 秒自动刷新 · 昵称会保存在此设备</small></section></main>;
   }
   return <main className="landing">
     <div className="landing-image" />
@@ -639,7 +653,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
           {!action && G.confirmationKind === 'turn' && G.log[0]?.includes('到达酒桶成就格') && <div className="action-panel compact-panel"><span className="eyebrow">CELLAR ACHIEVEMENTS</span><h3>酒桶成就已领取</h3><p className="panel-desc">{G.log[0]}</p></div>}
           {action?.type === 'start' && !G.startChoice && <div className="action-panel start-guide"><span className="eyebrow">RETURN TO START</span><h3>选择起始区域空位</h3><p>{forceFirstPlayerSlot ? '其他玩家都已返回，首位玩家格空置；你必须停在首位玩家格。' : '点击主板起始区域中任一空位，立即领取该格奖励并结束本轮。'}</p></div>}
           {activeShedChoice && <div className="action-panel shed-choice-panel"><span className="eyebrow">SHED BONUS</span><h3>棚屋奖励 · 周围产值 {activeShedChoice.value}</h3><p>酿酒师轨道 +{activeShedChoice.brewerAdvance} 格。请选择激活的相邻板块：{shedChoiceInstruction(activeShedChoice)}</p><div className="shed-choice-status">已选 {activeShedChoice.selected.length} / {activeShedChoice.activateCount} 块 · 点击花园中高亮的相邻板块</div><button className="btn btn-gold" disabled={!canControlTurn || !validShedSelection(activeShedChoice)} onClick={completeShedChoice}>完成棚屋激活选择</button></div>}
-          {G.undoSnapshot && <div className="action-confirm-bar"><span>{G.confirmationKind ? '行动已完成，请确认或撤回。' : activeShedChoice ? '请选择棚屋奖励板块，或撤回整次行动。' : action?.type === 'resource' || action?.type === 'monk' ? '可继续购买；结束购买后可确认或撤回整次行动。' : '可以撤回当前选择，重新选行动格。'}</span>{G.stepUndoSnapshots?.length ? <button className="btn btn-undo" disabled={!canControlTurn} onClick={() => requestGameAction('undoStep')}>撤回上一步</button> : null}<button className="btn btn-undo" disabled={!canControlTurn} onClick={() => requestGameAction('undoAction')}>撤回整次行动</button>{G.confirmationKind && <button className="btn btn-gold btn-confirm" disabled={!canControlTurn} onClick={() => requestGameAction('confirmAction')}>确认行动</button>}</div>}
+          {G.undoSnapshot && canControlTurn && <div className="action-confirm-bar"><span>{G.confirmationKind ? '行动已完成，请确认或撤回。' : activeShedChoice ? '请选择棚屋奖励板块，或撤回整次行动。' : action?.type === 'resource' || action?.type === 'monk' ? '可继续购买；结束购买后可确认或撤回整次行动。' : '可以撤回当前选择，重新选行动格。'}</span>{G.stepUndoSnapshots?.length ? <button className="btn btn-undo" onClick={() => requestGameAction('undoStep')}>撤回上一步</button> : null}<button className="btn btn-undo" onClick={() => requestGameAction('undoAction')}>撤回整次行动</button>{G.confirmationKind && <button className="btn btn-gold btn-confirm" onClick={() => requestGameAction('confirmAction')}>确认行动</button>}</div>}
         </div>
       </section>
       <aside className={`right-rail ${!isViewingCurrent ? 'is-inspecting-opponent' : ''}`}><div className="garden-heading"><div><h2>{me.name}的修道院</h2>{!isViewingCurrent && <small className="inspection-hint">正在查看对手版图 · 只读</small>}</div><div className="garden-legend"></div></div><div className="garden-board-reserved"><Garden player={me} playerIndex={viewingPlayerIndex} pieceFlights={pieceFlights} selectedTile={isViewingCurrent && canPlace ? selectedTile : undefined} sourceIndex={currentActionSpace?.sourceIndex} coins={activePlayer.coins} canPlace={isViewingCurrent && canPlace} activePlayer={me} shedChoice={isViewingCurrent && canControlTurn ? activeShedChoice : undefined} flightTileId={pieceFlights.find(flight => flight.kind === 'tile')?.tile?.id} flightTargetIndex={pieceFlights.find(flight => flight.kind === 'tile')?.targetIndex} flightScoreIndex={pieceFlights.find(flight => flight.kind === 'disc')?.scoreIndex} scoreTargetIndices={scoreTargetIndices} onScoreTarget={placeScoreFromBoard} onShedToggle={(i) => { if (canControlTurn && isViewingCurrent) moves.toggleShedChoice(i); }} onSelect={(i) => { if (canControlTurn && isViewingCurrent) placeTile(i); }} cells={garden} /></div><div className="rail-heading">特权卡 · 点击弃置可得3个钱币</div><div className="privileges">{['A', 'B', 'C', 'D', 'E'].filter(card => !me.privilegePairs.includes(card)).map(card => { const inHand = me.privileges.includes(card); const earned = me.privilegePairs.includes(card); const blocked = !canControlTurn || !isViewingCurrent || (!!G.confirmationKind && G.confirmationKind !== 'turn') || !!privilegePrompt; return <div className={`privilege ${inHand ? '' : 'used'}`} data-privilege-card={card} key={card}><img src={`/Images/privilege_card_front_${card}.png`} alt={`特权卡 ${card}`} />{inHand ? <button disabled={blocked} onClick={() => { if (!canControlTurn) return; animatePrivilegeCoins(currentPlayerIndex, card, 3); moves.discardPrivilege(card); }}>弃置 +3</button> : <span>{earned ? '已放置' : '已弃置'}</span>}</div>; })}</div><div className="rail-heading">已领取酒桶 <span className="count">{me.claimedBarrels.length}</span></div><div className="barrel-strip">{me.claimedBarrels.map((b, i) => <span key={`${b.id}-${i}`} className={`barrel-claimed-item ${b.size}`} style={{ visibility: pieceFlights.some(flight => flight.kind === 'barrel' && flight.playerIndex === viewingPlayerIndex && flight.barrelId === b.id && flight.barrelSize === b.size) ? 'hidden' : 'visible' }} title={`目标 ${b.id}：${barrelGoals[b.id - 1]} ${b.size === 'large' ? '大酒桶，4分' : '小酒桶，2分'}`}><img src={`/Images/barrel_goal_${b.id}.png`} alt={`目标 ${b.id}`} /><small>{b.size === 'large' ? '大 · 4分' : '小 · 2分'}</small></span>)}</div><div className="score-summary"><span>当前钱币</span><b><i className="player-coin-icon" aria-label="钱币" /> {me.coins}</b><span>酒桶计分</span><b>{me.claimedBarrels.reduce((n, b) => n + (b.size === 'large' ? 4 : 2), 0) + (me.privilegePairs.includes('C') ? me.claimedBarrels.length : 0)} 分</b></div></aside>
@@ -668,6 +682,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
 }
 
 function OnlineBotDriver({ client, seat, name, difficulty, onThinking, onBeforeMove }: { client: AnyClient; seat: number; name: string; difficulty: BotDifficulty; onThinking: (status: { playerID: number; iterations: number } | null) => void; onBeforeMove: (decision: { name: string; args: unknown[] }, current: any) => number }) {
+  const botSeats = useMemo(() => [seat], [seat]);
   useEffect(() => {
     const syncName = (state: any) => {
       if (Number(state?.ctx?.currentPlayer) === seat && state?.G?.players?.[seat]?.name !== name) (client as any).moves.setPlayerName?.(name);
@@ -676,7 +691,7 @@ function OnlineBotDriver({ client, seat, name, difficulty, onThinking, onBeforeM
     syncName((client as any).getState());
     return unsubscribe;
   }, [client, seat, name]);
-  return <BotController client={client} botSeats={[seat]} difficulty={difficulty} onThinking={onThinking} onBeforeMove={onBeforeMove} />;
+  return <BotController client={client} botSeats={botSeats} difficulty={difficulty} onThinking={onThinking} onBeforeMove={onBeforeMove} />;
 }
 
 function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove }: { client: AnyClient; botSeats: number[]; difficulty: BotDifficulty; onThinking: (status: { playerID: number; iterations: number } | null) => void; onBeforeMove: (decision: { name: string; args: unknown[] }, current: any) => number }) {
@@ -694,7 +709,8 @@ function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove 
       if (timer !== undefined) window.clearTimeout(timer);
       worker?.terminate(); worker = undefined;
       const playerID = Number(state?.ctx?.currentPlayer);
-      if (!state || state.G.phase === 'finished' || !botSeats.includes(playerID)) { onThinking(null); return; }
+      if (!state || state.G.phase === 'finished') { onThinking(null); return; }
+      if (!botSeats.includes(playerID)) return;
       onThinking({ playerID, iterations: 0 });
       const waitForAnimation = Math.max(100, animationLockUntil - Date.now() + 30);
       timer = window.setTimeout(() => {

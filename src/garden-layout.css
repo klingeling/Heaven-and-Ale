@@ -60,8 +60,8 @@
 .start-slot.selectable:hover{transform:translate(-50%,-50%) scale(1.08);background:#f0d48750}
 .start-slot.forced{border-color:#fff1ad;background:#fff1ad46;box-shadow:0 0 24px #fff1ad}
 .start-slot:disabled{opacity:1;cursor:default}
-.player-meeple{background-image:url('/Images/player_tokens.png');background-repeat:no-repeat;background-size:700% 100%;filter:drop-shadow(0 2px 3px #000d);transition:transform .16s ease,filter .16s ease}
-.start-player-figure{display:block;width:32%;height:74%;background-size:700% 100%;filter:drop-shadow(0 2px 3px #101710aa);pointer-events:auto}
+.player-meeple{background-image:url('/Images/player_meeples_3d.png');background-repeat:no-repeat;background-size:400% 100%;filter:drop-shadow(0 2px 3px #000d);transition:transform .16s ease,filter .16s ease}
+.start-player-figure{display:block;width:52.5%;height:70%;background-size:400% 100%;filter:drop-shadow(0 2px 3px #101710aa);pointer-events:auto}
 .start-slot-caption{position:absolute;left:50%;top:100%;z-index:20;transform:translateX(-50%);min-width:max-content;padding:2px 5px;border:1px solid #d3bb7a88;border-radius:3px;background:#17231de8;color:#fff0c5;font-size:clamp(6px,.54vw,9px);line-height:1.2;pointer-events:none;text-align:center;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s ease}
 .start-slot:hover{z-index:20}
 .start-slot:hover .start-slot-caption{opacity:1;visibility:visible}
@@ -259,9 +259,10 @@
 .game-layout.bot-thinking>.right-rail{pointer-events:none;opacity:1}
 .game-layout.bot-thinking>.center-play .main-board-wrap,.game-layout.bot-thinking>.center-play .action-area,.game-layout.bot-thinking>.right-rail{pointer-events:none}
 .track-space .occupants{position:absolute;left:50%;top:50%;right:auto;display:flex;align-items:center;justify-content:center;gap:0;transform:translate(-50%,-50%);z-index:8;width:100%;pointer-events:none}
-.track-space .occupants .player-meeple{position:relative;display:block;flex:none;width:clamp(18px,2vw,28px);height:clamp(44px,5.8vw,72px);pointer-events:auto}
-.track-space .occupants .player-meeple:nth-child(2){width:clamp(16px,1.7vw,23px);height:clamp(36px,4.8vw,60px);margin-left:-3px}
-.track-space .occupants .player-meeple:nth-child(3){width:clamp(14px,1.5vw,20px);height:clamp(30px,4.2vw,52px);margin-left:-4px}
+.track-space .occupants .player-meeple{position:relative;display:block;flex:none;width:clamp(26px,2.4vw,36px);height:clamp(35px,3.2vw,48px);pointer-events:auto}
+.track-space .occupants .player-meeple:nth-child(2){width:clamp(22px,2vw,30px);height:clamp(30px,2.7vw,40px);margin-left:-5px}
+.track-space .occupants .player-meeple:nth-child(3){width:clamp(18px,1.7vw,24px);height:clamp(24px,2.2vw,32px);margin-left:-7px}
+.track-space .occupants .player-meeple:nth-child(4){width:16px;height:22px;margin-left:-8px}
 .track-space .occupants .player-meeple.is-active-player{z-index:2;transform:scale(1.14);filter:drop-shadow(0 2px 3px #000e) drop-shadow(0 0 3px #fff) drop-shadow(0 0 7px #ffe37a);animation:active-player-glow 1.15s ease-in-out infinite alternate}
 .track-space .occupants .player-meeple:hover{transform:scale(1.3)}
 .track-space .occupants .player-meeple:hover::after,.start-player-figure:hover::after{opacity:1;visibility:visible;transform:translate(-50%,0) scale(1)}

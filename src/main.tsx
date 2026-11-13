@@ -18,9 +18,10 @@ const tokenSpritePosition = (color: string) => `${(tokenSpriteColorIndex[color] 
 const localSaveKey = 'heaven-and-ale-local-session-v1';
 type LocalSave = { version: 1; playerCount: number; botSeats: number[]; botDifficulty: BotDifficulty; playerNames: string[]; state: any; initialState: any; log: any[]; savedAt: number; botNames?: string[] };
 type OnlineRoomSession = { matchID: string; playerID: string; credentials: string; playerName: string; numPlayers: number; host: boolean; botSeats: number[]; botDifficulty?: BotDifficulty; botCredentials: { playerID: string; credentials: string }[] };
-type LobbyRoom = { matchID: string; players: { id: number; name?: string; isConnected?: boolean }[]; gameover?: unknown; updatedAt?: number };
+type LobbyRoom = { matchID: string; players: { id: number; name?: string; isConnected?: boolean; data?: Record<string, unknown> }[]; gameover?: unknown; updatedAt?: number };
 const onlineNameKey = 'heaven-and-ale-online-player-name-v1';
 const onlineSessionKey = (matchID: string) => `heaven-and-ale-online-room-${matchID}`;
+const onlineSessionPrefix = 'heaven-and-ale-online-room-';
 function saveOnlineSession(session: OnlineRoomSession) {
   localStorage.setItem(onlineSessionKey(session.matchID), JSON.stringify(session));
 }
@@ -28,6 +29,17 @@ function loadOnlineSession(matchID: string): OnlineRoomSession | null {
   try { const value = localStorage.getItem(onlineSessionKey(matchID)); return value ? JSON.parse(value) as OnlineRoomSession : null; }
   catch { return null; }
 }
+function readOnlineSessions(): OnlineRoomSession[] {
+  const sessions: OnlineRoomSession[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith(onlineSessionPrefix)) continue;
+    try { const session = JSON.parse(localStorage.getItem(key) || 'null') as OnlineRoomSession | null; if (session?.matchID && session.playerID && session.credentials) sessions.push(session); }
+    catch { /* ignore malformed saved room credentials */ }
+  }
+  return sessions.sort((a, b) => a.matchID.localeCompare(b.matchID));
+}
+const requiredAbandonVotes = (playerCount: number, botSeats: number[] = []) => Math.floor((playerCount - botSeats.length) / 2) + 1;
 function readLocalSave(): LocalSave | null {
   try {
     const raw = localStorage.getItem(localSaveKey);
@@ -74,6 +86,7 @@ function App() {
   const [roomCode, setRoomCode] = useState(() => new URLSearchParams(window.location.search).get('room') || '');
   const [roomInfo, setRoomInfo] = useState('');
   const [openRooms, setOpenRooms] = useState<LobbyRoom[]>([]);
+  const [abandonVoteState, setAbandonVoteState] = useState<{ votes: number[]; passed: boolean }>({ votes: [], passed: false });
   const [onlineRoom, setOnlineRoom] = useState<OnlineRoomSession | null>(null);
   const [roomMatch, setRoomMatch] = useState<LobbyRoom | null>(null);
   const [remoteBotClients, setRemoteBotClients] = useState<{ seat: number; client: AnyClient }[]>([]);
@@ -129,7 +142,9 @@ function App() {
   const matchAsRoom = (match: any): LobbyRoom => ({ matchID: match.matchID, players: match.players || [], gameover: match.gameover, updatedAt: match.updatedAt });
   const enterWaitingRoom = async (session: OnlineRoomSession, match: any) => {
     saveOnlineSession(session);
-    setOnlineRoom(session); setRoomMatch(matchAsRoom(match)); setRoomCode(session.matchID);
+    const room = matchAsRoom(match);
+    const votes = room.players.filter(player => player.data?.abandonVote === true).map(player => player.id);
+    setOnlineRoom(session); setRoomMatch(room); setAbandonVoteState({ votes, passed: votes.length >= requiredAbandonVotes(session.numPlayers, session.botSeats) }); setRoomCode(session.matchID);
     const url = new URL(window.location.href); url.searchParams.set('room', session.matchID); window.history.replaceState({}, '', url);
     setScreen('waiting'); setRoomInfo('');
   };
@@ -212,19 +227,41 @@ function App() {
     } catch (e) { setRoomInfo(`名称更新失败：${e instanceof Error ? e.message : '请重试。'}`); }
     setBusy(false);
   };
+  const voteToAbandon = async () => {
+    if (!onlineRoom) return;
+    const own = roomMatch?.players.find(player => Number(player.id) === Number(onlineRoom.playerID));
+    const newVote = own?.data?.abandonVote !== true;
+    try {
+      await new LobbyClient({ server: serverUrl }).updatePlayer(gameName, onlineRoom.matchID, {
+        playerID: onlineRoom.playerID,
+        credentials: onlineRoom.credentials,
+        data: { ...(own?.data || {}), abandonVote: newVote },
+      });
+      const match = await new LobbyClient({ server: serverUrl }).getMatch(gameName, onlineRoom.matchID);
+      const room = matchAsRoom(match), votes = room.players.filter(player => player.data?.abandonVote === true).map(player => player.id);
+      setRoomMatch(room); setAbandonVoteState({ votes, passed: votes.length >= requiredAbandonVotes(onlineRoom.numPlayers, onlineRoom.botSeats) });
+    } catch (e) { setRoomInfo(`投票失败：${e instanceof Error ? e.message : '请重试。'}`); }
+  };
+  const leaveAbandonedRoom = () => {
+    if (onlineRoom) localStorage.removeItem(onlineSessionKey(onlineRoom.matchID));
+    returnHome();
+  };
   useEffect(() => { if (roomCode && screen === 'home' && !busy) void joinRoom(roomCode); }, []);
   useEffect(() => {
-    if (screen !== 'waiting' || !onlineRoom) return;
+    if ((screen !== 'waiting' && screen !== 'game') || !onlineRoom) return;
     let cancelled = false;
     const refresh = async () => {
       try {
         const match = await new LobbyClient({ server: serverUrl }).getMatch(gameName, onlineRoom.matchID);
-        if (!cancelled) setRoomMatch(matchAsRoom(match));
+        if (!cancelled) {
+          const room = matchAsRoom(match), votes = room.players.filter(player => player.data?.abandonVote === true).map(player => player.id);
+          setRoomMatch(room); setAbandonVoteState({ votes, passed: votes.length >= requiredAbandonVotes(onlineRoom.numPlayers, onlineRoom.botSeats) });
+        }
       } catch { if (!cancelled) setRoomInfo('无法读取房间状态，房间可能已结束或服务暂时休眠。'); }
     };
     void refresh(); const timer = window.setInterval(() => void refresh(), 2500);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [screen, onlineRoom?.matchID, serverUrl]);
+  }, [screen, onlineRoom?.matchID, onlineRoom?.numPlayers, serverUrl]);
 
   useEffect(() => { if (!client) return; const persist = () => {
     if (!localConfig) return;
@@ -239,13 +276,14 @@ function App() {
   }, [client, localConfig]);
   const returnHome = () => { client?.stop(); remoteBotClients.forEach(({ client: botClient }) => botClient.stop()); setRemoteBotClients([]); setClient(null); setSnapshot(null); setScreen('home'); setActiveBotSeats([]); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]); setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setBotDifficulty('normal'); const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url); };
   const abandonLocalGame = () => { localStorage.removeItem(localSaveKey); setSavedLocal(null); returnHome(); };
-  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} playerName={onlineRoom?.playerName} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig} onExit={returnHome} onAbandon={abandonLocalGame} />;
+  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} playerName={onlineRoom?.playerName} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig} onlineVoteState={abandonVoteState} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
   if (screen === 'waiting' && onlineRoom) {
     const players = roomMatch?.players || [];
     const full = players.length >= onlineRoom.numPlayers && players.slice(0, onlineRoom.numPlayers).every(p => !!p.name);
     const shareUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(onlineRoom.matchID)}`;
     return <main className="landing waiting-screen"><div className="landing-image" /><header className="topbar"><div className="brand-mark"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><b>天堂与美酒 · 等候室</b></header><section className="waiting-room setup-card"><div className="card-kicker">TABLE {onlineRoom.matchID}</div><h1>{full ? '所有玩家已到齐' : '等待玩家加入'}</h1><p>房主开始游戏前，所有席位需要有人就座。分享此桌的专属链接即可邀请朋友加入。</p><label>你的玩家名称<div className="share-link-row"><input value={playerName} maxLength={18} onChange={e => setSavedName(e.target.value)} /><button className="btn btn-light" disabled={busy} onClick={() => void updateRoomName()}>更新名称</button></div></label><label>房间链接<div className="share-link-row"><input readOnly value={shareUrl} /><button className="btn btn-light" onClick={() => { void navigator.clipboard?.writeText(shareUrl); setRoomInfo('已复制房间链接。'); }}>复制</button></div></label><div className="waiting-seats">{Array.from({ length: onlineRoom.numPlayers }, (_, seat) => { const occupant = players.find(p => Number(p.id) === seat); return <div className={`waiting-seat ${occupant?.name ? 'is-filled' : ''}`} key={seat}><span className="seat-number">{seat + 1}</span><div><b>{occupant?.name || '等待玩家…'}</b><small>{onlineRoom.botSeats.includes(seat) ? '机器人席位' : occupant?.isConnected ? '已连接' : occupant?.name ? '已加入' : '空位'}</small></div>{occupant?.name && <i />}</div>; })}</div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="waiting-actions"><button className="btn btn-outline" onClick={leaveWaitingRoom}>离开房间</button><button className="btn btn-gold" disabled={!full || busy} onClick={startOnlineGame}>{busy ? '连接中…' : full ? '进入对局' : '等待所有玩家加入'}</button></div><small className="waiting-footnote">房间状态每 2.5 秒自动刷新 · 昵称会保存在此设备</small></section></main>;
   }
+  const myOnlineRooms = readOnlineSessions();
   return <main className="landing">
     <div className="landing-image" />
     <header className="topbar"><div className="brand-mark"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div>在犹如众神天堂般的麦芽酒花园中开怀畅饮！</div><div className="online-status"><i /> 桌游数字版</div></header>
@@ -268,13 +306,14 @@ function App() {
         </div>
         <div className="setup-card online-card"><div className="card-kicker">PLAY TOGETHER</div><h2>线上大厅</h2><p>浏览公开等候桌，或创建一桌并邀请朋友加入。</p><label>玩家名称<input value={playerName} onChange={e => setSavedName(e.target.value)} onBlur={() => { if (!playerName.trim()) setSavedName('玩家1'); }} maxLength={18} /></label><label>游戏服务器<input value={serverUrl} onChange={e => setServerUrl(e.target.value)} /></label><div className="online-create-options"><label>总人数<select value={onlinePlayerCount} onChange={e => { const n = Number(e.target.value); setOnlinePlayerCount(n); setOnlineBotCount(current => Math.min(current, n - 1)); }}><option value={2}>2 人</option><option value={3}>3 人</option><option value={4}>4 人</option></select></label><label>机器人席位<select value={onlineBotCount} onChange={e => setOnlineBotCount(Number(e.target.value))}>{Array.from({ length: onlinePlayerCount }, (_, n) => n < onlinePlayerCount ? <option key={n} value={n}>{n === 0 ? '不加入机器人' : `加入 ${n} 个机器人`}</option> : null).slice(0, onlinePlayerCount)}</select></label></div>{onlineBotCount > 0 && <label>机器人难度<select value={onlineBotDifficulty} onChange={e => setOnlineBotDifficulty(e.target.value as BotDifficulty)}><option value="normal">普通</option><option value="expert">专家</option></select></label>}<div className="online-actions"><button className="btn btn-outline" disabled={busy} onClick={createRoom}>创建等候桌</button><div className="join-row"><input placeholder="房间号 / 链接" value={roomCode} onChange={e => { const v = e.target.value; const match = v.match(/[?&]room=([^&]+)/); setRoomCode(match ? decodeURIComponent(match[1]) : v); }} /><button className="btn btn-light" disabled={busy} onClick={() => void joinRoom()}>加入</button></div></div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="lobby-list-heading"><b>可加入的房间</b><button onClick={() => void refreshRooms()}>刷新</button></div><div className="lobby-room-list">{openRooms.filter(room => room.players?.some(p => p.name)).map(room => { const occupied = room.players.filter(p => p.name).length, cap = room.players.length || 0; return <button className="lobby-room" key={room.matchID} disabled={busy || occupied >= cap} onClick={() => { setRoomCode(room.matchID); void joinRoom(room.matchID); }}><span><b>房间 {room.matchID}</b><small>{room.players.filter(p => p.name).map(p => p.name).join('、')}</small></span><em>{occupied}/{cap} 人 · {occupied >= cap ? '已满' : '等待中'}</em></button>; })}{openRooms.filter(room => room.players?.some(p => p.name)).length === 0 && <div className="lobby-empty">当前没有公开等候桌</div>}</div></div>
       </div>
+      {myOnlineRooms.length > 0 && <section className="my-online-rooms setup-card"><div className="lobby-list-heading"><b>我加入的房间</b><span>保存在此设备</span></div><div className="lobby-room-list">{myOnlineRooms.map(session => { const room = openRooms.find(item => item.matchID === session.matchID); const occupied = room?.players.filter(p => p.name).length ?? 0; return <div className="lobby-room my-room" key={session.matchID}><span><b>{room?.players.find(p => Number(p.id) === Number(session.playerID))?.name || session.playerName} · 房间 {session.matchID}</b><small>{room?.players.filter(p => p.name).map(p => p.name).join('、') || '房间暂不可用'}</small></span><em>{room ? `${occupied}/${room.players.length} 人` : '离线 / 已结束'}</em><button className="btn btn-light" onClick={() => { setRoomCode(session.matchID); void joinRoom(session.matchID); }}>重新进入</button></div>; })}</div></section>}
       <div className="feature-row"><span>✦ 依照官方规则设计</span><span>✦ 共享房间码联机</span><span>✦ 支持 2–4 人</span></div>
     </section>
     <footer>HEAVEN & ALE <span>·</span> 天堂与美酒</footer>
   </main>;
 }
 
-function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClients, playerName, remoteBotDifficulty, botDifficulty, isLocal, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; playerName?: string; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; onExit: () => void; onAbandon: () => void }) {
+function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClients, playerName, remoteBotDifficulty, botDifficulty, isLocal, onlineVoteState, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; playerName?: string; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; onlineVoteState: { votes: number[]; passed: boolean }; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
   const G = state.G as AleState, ctx = state.ctx, currentPlayerIndex = Number(ctx.currentPlayer);
   const currentPlayer = G.players[currentPlayerIndex] ?? G.players[0];
   const gameover = ctx.gameover as { winner?: string; winners?: string[]; draw?: boolean; scores?: number[] } | undefined;
@@ -309,7 +348,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const garden = gardenCells;
   const activeSeat = Number(ctx.currentPlayer);
   const isBotTurn = botSeats.includes(activeSeat) && G.phase !== 'finished';
-  const canControlTurn = ownsCurrentTurn && !isBotTurn;
+  const canControlTurn = ownsCurrentTurn && !isBotTurn && !onlineVoteState.passed;
   const canMove = canControlTurn && !action && !G.confirmationKind && !G.privilegePrompts.length && !currentPlayer.retired && G.phase === 'play';
   const trackMove = (index: number) => { if (!canMove || !canMoveTo(G, currentPlayer, index)) return 0; const moveTime = animateMeepleMove(currentPlayerIndex, index); const barrelTime = G.track[index]?.type === 'barrel' ? animateBarrels(currentPlayerIndex) : 0; moves.moveTo(index); setSelectedTileId(null); return Math.max(moveTime, barrelTime); };
   const currentActionSpace = action ? G.track[action.space] : null;
@@ -628,7 +667,8 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={setBotSearchStatus} onBeforeMove={animateBotMove} />}
     {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={setBotSearchStatus} onBeforeMove={animateBotMove} />)}
     {pieceFlights.map(flight => <div key={flight.id} className={`tile-flight ${flight.started ? 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, backgroundPosition: flight.kind === 'resource-marker' ? `${resources.indexOf(flight.resourceKey!) * 25}% center` : flight.kind === 'brewer-marker' || flight.kind === 'meeple' ? tokenSpritePosition(flight.playerColor || 'green') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <img src={`/Images/barrel_goal_${flight.barrelId}.png`} alt="" /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : null}</div>)}
-    <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div><div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div><button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
+    <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div><div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div><button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{!isLocal && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number((client as any).playerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
+    {!isLocal && onlineVoteState.passed && <div className="abandon-vote-banner"><b>放弃投票已通过，本局结束。</b><span>{onlineVoteState.votes.length} / {requiredAbandonVotes(G.players.length, botSeats)} 票赞成</span><button className="btn btn-gold" onClick={onLeaveAbandoned}>回到主页</button></div>}
     {G.phase === 'finished' && <div className="game-over-banner"><b>{gameover?.draw ? '平分，共享胜利：' : '获胜者：'}{winnerIds.map(id => G.players[Number(id)]?.name).filter(Boolean).join('、')}</b><span> · </span>{G.players.map((p, i) => <span key={i}>{p.name}：{gameover?.scores?.[i] ?? scoreBreakdown(p).total} 分{i < G.players.length - 1 ? '　' : ''}</span>)}</div>}
     <div className={`game-layout ${isBotTurn ? 'bot-thinking' : ''}`}>
       <section className="center-play"><div className="board-heading"><div><h2>主游戏版图</h2></div>{isBotTurn ? <span className="bot-thinking-pill"><i className="bot-thinking-dot" />{G.players[activeSeat]?.name} 正在思考</span> : <span className="board-tip"></span>}</div>

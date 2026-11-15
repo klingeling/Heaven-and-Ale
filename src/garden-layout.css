@@ -70,7 +70,7 @@
 .start-slot-caption small{display:block;color:#e5d29f;font-size:clamp(5px,.45vw,8px)}
 .start-guide h3{font-family:var(--serif);font-size:15px;margin:5px 0}.start-guide p{font-size:10px;line-height:1.6;color:#c6c2b2;margin:5px 0}
 .occupants img{width:18px;height:22px;object-fit:contain;filter:drop-shadow(0 1px 2px #0009)}
-.production-marker{position:absolute;z-index:5;width:5%;height:7.5%;transform:translate(-50%,-50%);border:0;border-radius:0;background-image:url('/Images/resource_track_cylinders.webp');background-repeat:no-repeat;background-size:1000% 100%;box-shadow:none;filter:none;pointer-events:auto;cursor:help;transition:transform .16s ease}
+.production-marker{position:absolute;z-index:5;width:5%;height:5%;transform:translate(-50%,-50%);border:0;border-radius:0;background-image:url('/Images/resource_track_cylinders.webp');background-repeat:no-repeat;background-size:1000% 100%;box-shadow:none;filter:none;pointer-events:auto;cursor:help;transition:transform .16s ease}
 .production-marker::before{display:none}
 .production-marker::after{content:attr(data-marker-label);position:absolute;left:50%;bottom:calc(100% + 1px);z-index:100;transform:translate(-50%,3px) scale(.9);padding:3px 7px;border:1px solid #e5ca8c;border-radius:3px;background:#17231ef2;color:#fff0c5;font:600 10px/1.2 'Noto Serif SC',serif;white-space:nowrap;opacity:0;visibility:hidden;box-shadow:0 3px 8px #000b;pointer-events:none;transition:opacity .12s ease,transform .12s ease,visibility .12s ease}
 .production-marker:hover{z-index:100!important;transform:translate(-50%,-50%) scale(1.35)}
@@ -271,7 +271,7 @@
 .bot-seat-options button{border:0;border-radius:3px;background:transparent;color:#aaa99b;padding:5px 8px;font-size:9px;white-space:nowrap}
 .bot-seat-options button.selected{background:#625537;color:#fff0c5;box-shadow:0 1px 4px #0007}
 .setup-card .bot-seat-row>input{height:31px;margin:0;padding:0 8px;font-size:9px}
-.production-marker{width:5%;height:7.5%;border:0;box-shadow:none}
+.production-marker{width:5%;height:5%;border:0;box-shadow:none}
 .brewer-marker-art{width:8.8%;height:18%;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 3px #000d)}
 .table-screen.expansion-enabled .hut-yield-badge{left:auto;right:35%;top:1%;transform:none;min-width:18px;height:18px;padding:0 3px;border-width:1px;border-color:#e5d3a58c;background:#17231dc9;color:#e5d3a5;font-size:10px;opacity:.78;box-shadow:0 1px 3px #0008}
 .bot-thinking-pill{display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #b99b5d;border-radius:22px;background:#202d27;color:#f4ddb0;font-size:10px;white-space:nowrap;box-shadow:0 2px 8px #0007}

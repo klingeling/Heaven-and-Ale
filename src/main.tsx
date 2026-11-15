@@ -657,7 +657,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
         return { left: rect.left + rect.width * point.left / 100 - width / 2, top: rect.top + rect.height * point.top / 100 - height / 2, width, height };
       };
       resources.forEach(resource => {
-        const from = markerRect(old.tracks[resource], .05, .075), to = markerRect(now.tracks[resource], .05, .075);
+        const from = markerRect(old.tracks[resource], .05, .05), to = markerRect(now.tracks[resource], .05, .05);
         if (from && to && old.tracks[resource] !== now.tracks[resource]) startPieceFlightFromRects('resource-marker', from, to, { playerIndex, resourceKey: resource });
       });
       const brewerFrom = markerRect(old.brewer, .088, .18), brewerTo = markerRect(now.brewer, .088, .18);

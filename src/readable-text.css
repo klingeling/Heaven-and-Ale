@@ -65,7 +65,7 @@
 .resource-stat>b{position:static;min-width:0;height:auto;padding:0;border-radius:0;background:none;color:#fff3d6;font-size:9px;line-height:1;text-align:left;box-shadow:none}
 .player-metric-combined-row>span{height:30px;background:#1e2b25;color:#eee0bf;font-size:10px;font-weight:700}
 .player-metric-combined-row b{font-size:9px;line-height:1}
-.player-info-brewer{display:block;width:18px;height:24px;background-image:url('/Images/brewer_tokens.png');background-size:700% 100%;background-repeat:no-repeat}
+.player-info-brewer{display:block;width:18px;height:24px;background-image:url('/Images/player_meeples_3d.png');background-size:400% 100%;background-repeat:no-repeat;filter:drop-shadow(0 0 1px #fff9) drop-shadow(0 1px 2px #000c)}
 .player-info-beer,.player-info-barrel,.player-coin-icon{display:block;background-repeat:no-repeat;flex:none}
 .player-info-beer{width:20px;height:24px;background-image:url('/Images/player-stat-icons.png');background-size:300% 100%;background-position:50% center}
 .player-info-barrel{width:18px;height:24px;background-image:url('/Images/player-stat-icons.png');background-size:300% 100%;background-position:left center}

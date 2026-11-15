@@ -62,8 +62,8 @@
 .start-slot.selectable:hover{transform:translate(-50%,-50%) scale(1.08);background:#f0d48750}
 .start-slot.forced{border-color:#fff1ad;background:#fff1ad46;box-shadow:0 0 24px #fff1ad}
 .start-slot:disabled{opacity:1;cursor:default}
-.player-meeple{background-image:url('/Images/player_meeples_3d.png');background-repeat:no-repeat;background-size:400% 100%;filter:drop-shadow(0 0 1px #fff) drop-shadow(0 2px 3px #000e);transition:transform .16s ease,filter .16s ease}
-.start-player-figure{display:block;width:clamp(26px,2.4vw,36px);height:clamp(35px,3.2vw,48px);background-size:400% 100%;filter:drop-shadow(0 0 1px #fff) drop-shadow(0 2px 3px #101710aa);pointer-events:auto}
+.player-meeple{background-image:url('/Images/player_meeples_3d.png');background-repeat:no-repeat;background-size:400% 100%;filter:drop-shadow(0 2px 3px #000d);transition:transform .16s ease,filter .16s ease}
+.start-player-figure{display:block;width:clamp(26px,2.4vw,36px);height:clamp(35px,3.2vw,48px);background-size:400% 100%;filter:drop-shadow(0 2px 3px #101710aa);pointer-events:auto}
 .start-slot-caption{position:absolute;left:50%;top:100%;z-index:20;transform:translateX(-50%);min-width:max-content;padding:2px 5px;border:1px solid #d3bb7a88;border-radius:3px;background:#17231de8;color:#fff0c5;font-size:clamp(6px,.54vw,9px);line-height:1.2;pointer-events:none;text-align:center;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s ease}
 .start-slot:hover{z-index:20}
 .start-slot:hover .start-slot-caption{opacity:1;visibility:visible}
@@ -75,7 +75,7 @@
 .production-marker::after{content:attr(data-marker-label);position:absolute;left:50%;bottom:calc(100% + 1px);z-index:100;transform:translate(-50%,3px) scale(.9);padding:3px 7px;border:1px solid #e5ca8c;border-radius:3px;background:#17231ef2;color:#fff0c5;font:600 10px/1.2 'Noto Serif SC',serif;white-space:nowrap;opacity:0;visibility:hidden;box-shadow:0 3px 8px #000b;pointer-events:none;transition:opacity .12s ease,transform .12s ease,visibility .12s ease}
 .production-marker:hover{z-index:100!important;transform:translate(-50%,-50%) scale(1.35)}
 .production-marker:hover::after{opacity:1;visibility:visible;transform:translate(-50%,0) scale(1)}
-.brewer-marker-art{position:absolute;z-index:6;width:8.8%;height:18%;display:block;transform:translate(-50%,-50%);background-image:url('/Images/brewer_tokens.png');background-repeat:no-repeat;background-size:700% 100%;filter:drop-shadow(0 2px 3px #000d);cursor:help;pointer-events:auto;transition:transform .16s ease,filter .16s ease}
+.brewer-marker-art{position:absolute;z-index:6;width:13.5%;height:18%;display:block;transform:translate(-50%,-50%);background-image:url('/Images/brewer_meeples_3d.png');background-repeat:no-repeat;background-size:400% 100%;filter:drop-shadow(0 0 1px #fff9) drop-shadow(0 2px 3px #000e);cursor:help;pointer-events:auto;transition:transform .16s ease,filter .16s ease}
 .brewer-marker-art::after,.player-meeple::after{position:absolute;left:50%;bottom:calc(100% + 2px);z-index:100;transform:translate(-50%,3px) scale(.9);padding:3px 7px;border:1px solid #e5ca8c;border-radius:3px;background:#17231ef2;color:#fff0c5;font:600 10px/1.2 'Noto Serif SC',serif;white-space:nowrap;opacity:0;visibility:hidden;box-shadow:0 3px 8px #000b;pointer-events:none;transition:opacity .12s ease,transform .12s ease,visibility .12s ease}
 .brewer-marker-art::after{content:attr(data-marker-label)}
 .player-meeple::after{content:attr(data-player-name)}
@@ -272,7 +272,7 @@
 .bot-seat-options button.selected{background:#625537;color:#fff0c5;box-shadow:0 1px 4px #0007}
 .setup-card .bot-seat-row>input{height:31px;margin:0;padding:0 8px;font-size:9px}
 .production-marker{width:5%;height:5%;border:0;box-shadow:none}
-.brewer-marker-art{width:8.8%;height:18%;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 3px #000d)}
+.brewer-marker-art{width:13.5%;height:18%;transform:translate(-50%,-50%);filter:drop-shadow(0 0 1px #fff9) drop-shadow(0 2px 3px #000e)}
 .table-screen.expansion-enabled .hut-yield-badge{left:auto;right:35%;top:1%;transform:none;min-width:18px;height:18px;padding:0 3px;border-width:1px;border-color:#e5d3a58c;background:#17231dc9;color:#e5d3a5;font-size:10px;opacity:.78;box-shadow:0 1px 3px #0008}
 .bot-thinking-pill{display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #b99b5d;border-radius:22px;background:#202d27;color:#f4ddb0;font-size:10px;white-space:nowrap;box-shadow:0 2px 8px #0007}
 .bot-thinking-pill .bot-thinking-dot{width:9px;height:9px;margin:0;flex:none}

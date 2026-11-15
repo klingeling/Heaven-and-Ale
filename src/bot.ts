@@ -3,7 +3,7 @@ import {
   monkNames, resources, scoreBreakdown, scoreChoices, shedProductionProgress, tileBaseCost,
   validShedSelection, type AleState, type PlayerState, type Resource, type ShedChoice, type Tile,
 } from './game';
-import { emptyExpansionStorageSlots, storedCargoCount, validCartLoadChoices, type ExpansionCargo } from './expansion';
+import { STORAGE_UNLOCK_ORDER, UNLOCKABLE_STORAGE_SLOTS, cartGateBeforeLocation, cartRoute, emptyExpansionStorageSlots, storedCargoCount, validCartLoadChoices, type ExpansionCargo, type ExpansionPlayerBoard } from './expansion';
 
 export type BotDifficulty = 'normal' | 'expert';
 export type BotMove = { name: string; args: unknown[] };
@@ -326,6 +326,158 @@ function chooseCellForShed(choice: ShedChoice, p: PlayerState, G: AleState) {
   return best?.find(i => !choice.selected.includes(i));
 }
 
+// During expansion setup, the robot plans the whole tile-to-hut allocation.
+// Huts with more shade-side neighbours are cheaper to surround, so valuable
+// effects are reserved for the huts the bot expects to complete earlier.
+const storeTileValue: Record<number, number> = { 1: 2.7, 2: 3.5, 3: 3.1, 4: 3.8, 5: 2.8, 6: 3.5, 7: 3.2 };
+const expansionHutIndices = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+const hutAccessibilityCache = new Map<number, number>();
+function hutSetupAccessibility(slot: number) {
+  const cached = hutAccessibilityCache.get(slot);
+  if (cached !== undefined) return cached;
+  const hutIndex = expansionHutIndices[slot];
+  if (hutIndex === undefined) return 0;
+  const ring = neighbors(hutIndex);
+  const shadeCount = ring.filter(index => gardenCells[index].side === 'shade').length;
+  const sunCount = ring.filter(index => gardenCells[index].side === 'sun').length;
+  const value = 1 + shadeCount * .09 - sunCount * .025;
+  hutAccessibilityCache.set(slot, value);
+  return value;
+}
+function planExpansionStoreSetup(G: AleState, playerIndex: number) {
+  const board = G.expansion?.players[playerIndex];
+  if (!board) return null;
+  const emptySlots = board.hutStoreTiles.flatMap((tile, slot) => tile === null ? [slot] : []);
+  const remainingTiles = Array.from({ length: 7 }, (_, index) => index + 1).filter(tile => !board.hutStoreTiles.includes(tile));
+  if (!emptySlots.length || emptySlots.length !== remainingTiles.length) return null;
+  const targetSlot = [...emptySlots].sort((a, b) => hutSetupAccessibility(b) - hutSetupAccessibility(a))[0];
+  const tile = [...remainingTiles].sort((a, b) => storeTileValue[b] - storeTileValue[a] || a - b)[0];
+  return targetSlot === undefined || tile === undefined ? null : { slot: targetSlot, tile };
+}
+function expansionSetupPotential(G: AleState, playerIndex: number) {
+  const board = G.expansion?.players[playerIndex];
+  if (!board) return 0;
+  const unspent = board.hutStoreTiles.flatMap((tile, slot) => tile !== null && !board.hutStoreUsed[slot] ? [storeTileValue[tile] * hutSetupAccessibility(slot)] : []);
+  // The setup plan is most useful in the opening; fade this heuristic as huts
+  // are consumed so it does not distort late-game score comparisons.
+  const roundWeight = Math.max(.08, 1 - (G.round - 1) / Math.max(1, G.maxRounds));
+  return unspent.reduce((sum, value) => sum + value, 0) * .22 * roundWeight;
+}
+
+function cartMoveValue(board: ExpansionPlayerBoard, steps: number, loadCount: number) {
+  const initiallyLoaded = loadCount;
+  let position = board.cartPosition, cartBarrels = board.cartBarrels, remaining = steps, deliveredScore = 0;
+  const startingCartValue = cartBarrels * (cartRoute[position]?.score ?? 0);
+  while (remaining > 0) {
+    const next = (position + 1) % cartRoute.length;
+    const gate = cartGateBeforeLocation[next];
+    if (gate === 'load') {
+      if (loadCount === 0) { position = 0; break; }
+      cartBarrels += loadCount;
+      loadCount = 0;
+    } else if (gate === 'deliver-one' && cartBarrels > 0) {
+      const brewery = (cartRoute[next].brewery ?? 1) - 1;
+      cartBarrels--;
+      deliveredScore += board.breweryScores[brewery];
+    } else if (gate === 'deliver-all') {
+      deliveredScore += cartBarrels * board.breweryScores[2];
+      cartBarrels = 0;
+    }
+    position = next;
+    remaining--;
+  }
+  // Loaded barrels turn stored inventory into delivery points; straw has a
+  // modest opportunity cost because it is required to load on a later trip.
+  const loadedCount = Math.min(initiallyLoaded, storedCargoCount(board, 'barrel'));
+  return deliveredScore + cartBarrels * (cartRoute[position]?.score ?? 0) - startingCartValue
+    - loadedCount * .5 - loadedCount * .45;
+}
+
+function bestCartMoveValue(G: AleState, board: ExpansionPlayerBoard, steps: number, choices = validCartLoadChoices(board, steps)) {
+  return Math.max(-2, ...choices.map(load => cartMoveValue(board, steps, load)));
+}
+
+function futureBreweryDeliveries(G: AleState, board: ExpansionPlayerBoard) {
+  const rounds = Math.max(0, G.maxRounds - G.round);
+  const expectedTrips = rounds * .85 + .15;
+  const canLoad = Math.max(storedCargoCount(board, 'barrel'), storedCargoCount(board, 'straw'), board.cartBarrels) > 0;
+  return [
+    expectedTrips * (canLoad ? .9 : .45),
+    expectedTrips * (storedCargoCount(board, 'barrel') >= 2 && storedCargoCount(board, 'straw') >= 2 ? .7 : .4),
+  ];
+}
+
+function storageExpansionValue(G: AleState, p: PlayerState, board: ExpansionPlayerBoard) {
+  const free = emptyExpansionStorageSlots(board).length;
+  const rounds = Math.max(0, G.maxRounds - G.round);
+  const congestion = free === 0 ? 4.1 : free === 1 ? 3.3 : free === 2 ? 2.5 : free === 3 ? 1.7 : 1.1;
+  const stockPressure = Math.max(0, storedCargoCount(board, 'barrel') + storedCargoCount(board, 'straw') - 1) * .35;
+  return (congestion + stockPressure) * (.35 + .65 * rounds / Math.max(1, G.maxRounds - 1))
+    + (p.coins < 8 ? .35 : 0);
+}
+
+function bestStoreTile7Front(G: AleState, p: PlayerState, board: ExpansionPlayerBoard) {
+  const expansion = G.expansion;
+  if (!expansion) return null;
+  const regularSlots = emptyExpansionStorageSlots(board);
+  const tempAvailable = !board.temporaryStorage && p.coins >= 4;
+  const destinations = [...regularSlots.slice(0, 2)];
+  if (destinations.length < 2 && tempAvailable) destinations.push(-1);
+  const cargoKinds: ExpansionCargo[][] = [];
+  if (expansion.barrelSupply > 0) cargoKinds.push(['barrel']);
+  if (expansion.strawSupply > 0) cargoKinds.push(['straw']);
+  if (expansion.barrelSupply > 0 && expansion.strawSupply > 0) cargoKinds.push(['barrel', 'straw']);
+  let best: { cargo: ExpansionCargo[]; destinations: number[]; value: number } | null = null;
+  for (const cargo of cargoKinds) {
+    if (cargo.length > destinations.length) continue;
+    const ordered = cargo.length === 2 && storedCargoCount(board, 'barrel') > storedCargoCount(board, 'straw') ? ['straw', 'barrel'] as ExpansionCargo[] : cargo;
+    const assigned = ordered.map((_, index) => destinations[index]);
+    const coinCost = assigned.filter(slot => slot === -1).length * 4;
+    const barrelCount = storedCargoCount(board, 'barrel'), strawCount = storedCargoCount(board, 'straw');
+    const value = ordered.reduce((sum, kind) => sum + (kind === 'barrel'
+      ? 2.3 + (barrelCount < strawCount ? 1.1 : 0)
+      : 2.3 + (strawCount < barrelCount ? 1.1 : 0)), 0)
+      - coinCost * (p.coins < 8 ? .9 : p.coins < 14 ? .55 : .3);
+    if (!best || value > best.value) best = { cargo: ordered, destinations: assigned, value };
+  }
+  return best;
+}
+
+function chooseStoreTileUse(G: AleState, p: PlayerState, board: ExpansionPlayerBoard, tileId: number) {
+  const extensionSlotAvailable = board.storageExtensions.some(extension => extension === null);
+  const storageBackAvailable = STORAGE_UNLOCK_ORDER.some(slot => board.storageExtensions[UNLOCKABLE_STORAGE_SLOTS.indexOf(slot)] === null);
+  const backValue = storageBackAvailable ? storageExpansionValue(G, p, board) : -Infinity;
+  let frontValue = -Infinity, frontArgs: unknown[] = [];
+  const remainingRounds = Math.max(0, G.maxRounds - G.round);
+  if ((tileId === 1 || tileId === 2) && extensionSlotAvailable) {
+    const bonus = tileId === 1 ? 2 : 3;
+    let improvement = 0;
+    for (let die = 1; die <= 6; die++) {
+      improvement += bestCartMoveValue(G, board, die + board.cartStepBonus + bonus)
+        - bestCartMoveValue(G, board, die + board.cartStepBonus);
+    }
+    frontValue = Math.max(.3, improvement / 6) * (remainingRounds * .9 + .25);
+  } else if (tileId === 3 || tileId === 4) {
+    const score = tileId === 3 ? 5 : 6;
+    const targets = [0, 1].filter(index => board.breweryUpgradeTiles[index] === null);
+    const deliveries = futureBreweryDeliveries(G, board);
+    const target = targets.sort((a, b) => (score - board.breweryScores[b]) * deliveries[b] - (score - board.breweryScores[a]) * deliveries[a])[0];
+    if (target !== undefined) {
+      frontValue = (score - board.breweryScores[target]) * deliveries[target];
+      frontArgs = [[], [], target];
+    }
+  } else if (tileId === 5 || tileId === 6) {
+    const steps = tileId === 5 ? 4 : 6, choices = validCartLoadChoices(board, steps);
+    if (choices.length) frontValue = bestCartMoveValue(G, board, steps, choices);
+  } else if (tileId === 7) {
+    const cargo = bestStoreTile7Front(G, p, board);
+    if (cargo) { frontValue = cargo.value; frontArgs = [cargo.cargo, cargo.destinations]; }
+  }
+  if (frontValue > backValue) return { side: 'front' as const, args: frontArgs };
+  if (storageBackAvailable) return { side: 'back' as const, args: [] };
+  return frontValue > -Infinity ? { side: 'front' as const, args: frontArgs } : null;
+}
+
 export function chooseBotMove(G: AleState, currentPlayer: string, difficulty: BotDifficulty): BotMove | null {
   const player = G.players[Number(currentPlayer)];
   if (!player || G.phase === 'finished') return null;
@@ -335,38 +487,24 @@ export function chooseBotMove(G: AleState, currentPlayer: string, difficulty: Bo
   if (G.phase === 'setup' && G.setupStage === 'expansion-stores' && G.expansion) {
     const board = G.expansion.players[Number(currentPlayer)];
     if (!board || G.expansion.storeSetupReady[Number(currentPlayer)]) return null;
-    const huts = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
-    const emptySlot = board.hutStoreTiles.findIndex(tile => tile === null);
-    if (emptySlot >= 0) {
-      const used = new Set(board.hutStoreTiles.filter((tile): tile is number => tile !== null));
-      const nextTile = Array.from({ length: 7 }, (_, i) => i + 1).find(tile => !used.has(tile));
-      return nextTile === undefined ? null : { name: 'assignExpansionStoreTile', args: [huts[emptySlot], nextTile] };
+    const plannedPlacement = planExpansionStoreSetup(G, Number(currentPlayer));
+    if (plannedPlacement) {
+      const huts = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+      return { name: 'assignExpansionStoreTile', args: [huts[plannedPlacement.slot], plannedPlacement.tile] };
     }
     return { name: 'finishExpansionStoreSetup', args: [] };
   }
   if (G.expansion?.storePrompts?.[0]?.playerIndex === Number(currentPlayer)) {
     const prompt = G.expansion.storePrompts[0], board = G.expansion.players[Number(currentPlayer)];
-    if (prompt.tileId === 7) {
-      const empty = emptyExpansionStorageSlots(board).length;
-      const cargo: ExpansionCargo[] = [];
-      if (empty > 0 && G.expansion.barrelSupply > 0) cargo.push('barrel');
-      if (empty > cargo.length && G.expansion.strawSupply > 0) cargo.push('straw');
-      return cargo.length ? { name: 'resolveExpansionStore', args: ['front', cargo] } : { name: 'resolveExpansionStore', args: ['back'] };
-    }
-    if (prompt.tileId === 3 || prompt.tileId === 4) {
-      const score = prompt.tileId === 3 ? 5 : 6;
-      const targets = [0, 1].filter(index => !(board.breweryUpgradeTiles ?? [null, null])[index]);
-      targets.sort((a, b) => (score - board.breweryScores[b]) - (score - board.breweryScores[a]));
-      if (targets.length) return { name: 'resolveExpansionStore', args: ['front', [], [], targets[0]] };
-      return { name: 'resolveExpansionStore', args: ['back'] };
-    }
-    if ((prompt.tileId === 5 || prompt.tileId === 6) && !validCartLoadChoices(board, prompt.tileId === 5 ? 4 : 6).length)
-      return { name: 'resolveExpansionStore', args: ['back'] };
-    return { name: 'resolveExpansionStore', args: ['front'] };
+    const use = chooseStoreTileUse(G, player, board, prompt.tileId);
+    if (!use) return null;
+    return { name: 'resolveExpansionStore', args: [use.side, ...use.args] };
   }
   if (G.expansion?.cartMovement && G.expansion.cartMovement.nextLocation >= 0 && G.expansion.cartMovement.playerIndex === Number(currentPlayer)) {
-    const choices = G.expansion.cartMovement.loadChoices;
-    const load = Math.max(...choices);
+    const movement = G.expansion.cartMovement, board = G.expansion.players[Number(currentPlayer)];
+    if (!board) return null;
+    const choices = movement.loadChoices;
+    const load = [...choices].sort((a, b) => cartMoveValue(board, movement.remaining, b) - cartMoveValue(board, movement.remaining, a) || a - b)[0];
     return { name: 'chooseExpansionCartLoad', args: [load] };
   }
   if (G.pending?.player === currentPlayer && G.pending.baseDone && G.pending.cargoDone === false && G.expansion) {
@@ -524,7 +662,7 @@ export function searchValue(G: AleState, player: number) {
   const p = G.players[player];
   if (G.phase === 'finished' || (p.retired && G.round === G.maxRounds)) return scoreBreakdown(p, G.expansionEnabled ? G.expansion?.players[player] : undefined).total;
   const expansionValue = G.expansionEnabled ? scoreBreakdown(p, G.expansion?.players[player]).expansionBarrelScore : 0;
-  return evaluate(p, G.round, G.maxRounds) + expansionValue - economyRisk(G, player);
+  return evaluate(p, G.round, G.maxRounds) + expansionValue + expansionSetupPotential(G, player) - economyRisk(G, player);
 }
 
 

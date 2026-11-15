@@ -354,7 +354,6 @@
 .transport-storage-marker.selectable::after{content:"";position:absolute;inset:0;border:1px solid #ffe08c99;border-radius:8px;background:#ffe08c1c;box-shadow:inset 0 0 0 1px #17120b66;opacity:.45;transition:opacity .12s;pointer-events:none}
 .transport-storage-marker.selectable:hover::after{opacity:1}
 .transport-storage-unlock-art{position:absolute;inset:0;z-index:0;display:block;width:100%;height:100%;object-fit:fill;filter:drop-shadow(0 1px 2px #0009);pointer-events:none}
-.transport-storage-unlock-art.occupied{opacity:.58}
 .transport-storage-marker>.transport-cargo-token{position:relative;z-index:1}
 .transport-extension-effect{position:absolute;z-index:4;width:14%;height:6.9%;transform:translate(-50%,-50%);object-fit:fill;filter:drop-shadow(0 2px 3px #000b);pointer-events:auto}
 .transport-brewery-upgrade{position:absolute;z-index:5;width:14%;height:6.9%;transform:translate(-50%,-50%);object-fit:fill;filter:drop-shadow(0 1px 2px #000a);pointer-events:none}

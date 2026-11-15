@@ -112,6 +112,18 @@
   .player-info-beer{width:17px;height:21px}
   .player-info-barrel{width:16px;height:21px}
 }
+@media(max-width:780px){
+  .table-header{flex-wrap:nowrap;gap:4px;padding-right:6px;padding-left:6px;overflow:hidden}
+  .table-header .table-title{flex:1 1 auto;min-width:0}
+  .table-header .table-title small,.table-header .expansion-room-badge{display:none}
+  .table-header .round-chip{flex:0 0 auto;margin-left:auto;padding:5px 6px;white-space:nowrap}
+  .table-header .icon-btn{flex:0 0 auto;padding-right:5px;padding-left:5px;white-space:nowrap}
+}
+@media(max-width:440px){
+  .table-header{gap:3px}
+  .table-header .table-title b{font-size:10px}
+  .table-header .round-chip,.table-header .icon-btn{font-size:9px;padding-right:4px;padding-left:4px}
+}
 
 /* Keep the landing artwork anchored to the viewport while seat options expand or collapse. */
 .landing-image{position:fixed}

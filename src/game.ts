@@ -1,4 +1,5 @@
 import type { Game } from 'boardgame.io';
+import { INITIAL_BARREL_SUPPLY, INITIAL_STRAW_SUPPLY, STORAGE_UNLOCK_ORDER, UNLOCKABLE_STORAGE_SLOTS, canStoreExpansionCargo, cartGateBeforeLocation, cartRoute, createExpansionState, emptyExpansionStorageSlots, ensureExpansionStorageLayout, initializeFirstExpansionRound, maximumCartLoad, removeStoredCargo, seedRoundCargo, simulateCartMove, storedCargoCount, validCartLoadChoices, type ExpansionCargo, type ExpansionState } from './expansion';
 
 export type Resource = 'wood' | 'yeast' | 'hops' | 'water' | 'barley';
 export type Tile = { id: string; kind: 'resource' | 'monk'; value: number; tier?: 'I' | 'II'; resource?: Resource; monk?: string };
@@ -14,8 +15,12 @@ export type ShedChoice = { hutIndex: number; value: number; brewerAdvance: numbe
 export type PrivilegePrompt = { kind: 'pair'; pairIndex: number };
 export type AleState = {
   players: PlayerState[]; round: number; maxRounds: number; track: ActionSpace[]; resources: Tile[][]; monks: Tile[][];
+  /** The expansion is opt-in; false leaves the base game state and rules unchanged. */
+  expansionEnabled: boolean;
+  expansion: ExpansionState | null;
   resourceDecks: Tile[][]; monkDecks: Tile[][]; scores: number[]; barrels: { id: number; remaining: number }[]; phase: 'setup' | 'play' | 'finished';
-  pending: { space: number; type: ActionSpace['type']; player: string; purchases?: number } | null; log: string[];
+  setupStage: 'starts' | 'expansion-stores' | null;
+  pending: { space: number; type: ActionSpace['type']; player: string; purchases?: number; baseDone?: boolean; cargoDone?: boolean; cargoTaken?: number; cartDone?: boolean; actionsDone?: number } | null; log: string[];
   startPlayer: number; firstTurnAfterSetup: boolean; startChoice: { player: string; slot: number; mode: 'setup' | 'return' } | null;
   undoSnapshot: string | null; stepUndoSnapshots?: string[]; confirmationKind: 'setup' | 'turn' | 'return' | 'free' | null;
   shedChoices: ShedChoice[]; privilegePrompts: PrivilegePrompt[];
@@ -114,6 +119,7 @@ const barrelB = { type: 'barrel' as const, label: '酒桶', ...point(140, 605) }
 export const barrelTokenPositions = [
   [531, 402], [706, 402], [876, 402], [1045, 402], [1212, 402], [1381, 402],
   [531, 784], [706, 784], [876, 784], [1045, 784], [1212, 784], [1381, 784],
+  [1515, 590],
 ].map(([x, y]) => ({ left: x / 1904 * 100, top: y / 1176 * 100 }));
 export const startSlots = [
   { label: '首位玩家', reward: '无奖励', ...point(205, 151) },
@@ -160,22 +166,31 @@ const makeDeck = (G: AleState, random: { Shuffle<T>(items: T[]): T[] }, rounds: 
 
 export const HeavenAle: Game<AleState> = {
   name: 'heaven-and-ale',
-  setup: ({ ctx, random }) => {
+  setup: ({ ctx, random }, setupData?: { expansionEnabled?: boolean }) => {
     const count = Math.max(2, Math.min(4, ctx.numPlayers));
     const players = Array.from({ length: count }, (_, i) => emptyPlayer(i, playerColors[i]));
     const startPlayer = random.Shuffle(Array.from({ length: count }, (_, i) => i))[0] ?? 0;
     players[startPlayer].startSlot = 0;
-    const G: AleState = { players, round: 1,
+    const expansionEnabled = setupData?.expansionEnabled === true;
+    const expansion = expansionEnabled ? createExpansionState(count, track.length) : null;
+    const G: AleState = { players, round: 1, expansionEnabled, expansion,
       maxRounds: count === 2 ? 3 : count === 3 ? 4 : 6, track, resources: [], monks: [], resourceDecks: [], monkDecks: [], scores: [1, 1, 1, 1, 1, 1],
-      barrels: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, remaining: 2 })), phase: 'setup', pending: null, log: [`随机决定${players[startPlayer].name}为首位玩家并放在起始玩家格；其他玩家逆时针选择起始奖励。`],
+      barrels: Array.from({ length: expansionEnabled ? 13 : 12 }, (_, i) => ({ id: i + 1, remaining: 2 })), phase: 'setup', setupStage: 'starts', pending: null, log: [`随机决定${players[startPlayer].name}为首位玩家并放在起始玩家格；其他玩家逆时针选择起始奖励。`],
       startPlayer, firstTurnAfterSetup: false, startChoice: null, undoSnapshot: null, stepUndoSnapshots: [], confirmationKind: null, shedChoices: [], privilegePrompts: [] };
     makeDeck(G, random, G.maxRounds);
     return G;
   },
   turn: { minMoves: 1, maxMoves: 99,
     order: {
-      first: ({ G }) => G.phase === 'setup' ? (G.startPlayer + G.players.length - 1) % G.players.length : G.startPlayer,
+      first: ({ G }) => G.phase === 'setup' ? (G.setupStage === 'expansion-stores' ? G.startPlayer : (G.startPlayer + G.players.length - 1) % G.players.length) : G.startPlayer,
       next: ({ G, ctx }) => {
+        if (G.phase === 'setup' && G.setupStage === 'expansion-stores' && G.expansion) {
+          for (let step = 1; step <= G.players.length; step++) {
+            const candidate = (Number(ctx.currentPlayer) + step) % G.players.length;
+            if (!G.expansion.storeSetupReady[candidate]) return candidate;
+          }
+          return undefined;
+        }
         if (G.phase === 'setup') return (Number(ctx.currentPlayer) + G.players.length - 1) % G.players.length;
         if (G.firstTurnAfterSetup) return G.startPlayer;
         for (let step = 1; step <= G.players.length; step++) {
@@ -186,6 +201,39 @@ export const HeavenAle: Game<AleState> = {
       },
     },
     onBegin: ({ G, ctx, events }) => {
+      if (G.expansionEnabled && G.expansion) {
+        G.expansion.storePrompts ??= [];
+        if (G.phase === 'setup') {
+          G.expansion.cargoByTrackSpace = G.track.map(() => []);
+          G.expansion.barrelSupply = INITIAL_BARREL_SUPPLY;
+          G.expansion.strawSupply = INITIAL_STRAW_SUPPLY;
+          G.expansion.cartDieSpace = -1;
+          G.expansion.cartDieValue = 0;
+          G.expansion.cartDieWrappedThisRound = false;
+        }
+        G.expansion.cartDieWrappedThisRound ??= false;
+        G.expansion.turnEndDieStopPlayer ??= null;
+        G.expansion.players.forEach(board => {
+          board.hutStoreTiles ??= Array(7).fill(null);
+          board.hutStoreUsed ??= Array(board.hutStoreTiles.length).fill(false);
+          ensureExpansionStorageLayout(board);
+          board.cartStepBonus ??= 0; board.cartBarrels ??= 0; board.cartPosition ??= 0;
+          board.breweryScores ??= [3, 4, 8]; board.breweryDeliveries ??= [0, 0, 0]; board.deliveredBarrels ??= 0;
+          const legacyBreweryTiles = Array.isArray(board.storageExtensions) ? board.storageExtensions.map(extension => extension?.kind === 'effect' && (extension.tileId === 3 || extension.tileId === 4) ? extension.tileId : null) : [];
+          board.breweryUpgradeTiles ??= [
+            legacyBreweryTiles.includes(3) || board.breweryScores[0] === 5 ? 3 : null,
+            legacyBreweryTiles.includes(4) || board.breweryScores[1] === 6 ? 4 : null,
+          ];
+          board.breweryUpgradeTiles.length = 2;
+          board.breweryUpgradeTiles[0] ??= null; board.breweryUpgradeTiles[1] ??= null;
+          board.storageExtensions = board.storageExtensions.map(extension => extension?.kind === 'effect' && (extension.tileId === 3 || extension.tileId === 4) ? null : extension);
+        });
+        if (!G.barrels.some(barrel => barrel.id === 13)) G.barrels.push({ id: 13, remaining: 2 });
+        if (G.expansion.cartMovement) {
+          G.expansion.cartMovement.completion ??= 'action';
+          G.expansion.cartMovement.startPosition ??= G.expansion.players[G.expansion.cartMovement.playerIndex]?.cartPosition ?? 0;
+        }
+      }
       if (G.firstTurnAfterSetup) G.firstTurnAfterSetup = false;
       if (G.phase === 'play' && !G.players[Number(ctx.currentPlayer)]?.retired) {
         const cycle = G.logCycle;
@@ -221,11 +269,14 @@ export const HeavenAle: Game<AleState> = {
       if (slot === 3) { G.startChoice = { player: ctx.currentPlayer, slot, mode }; return; }
       finalizeStartChoice(G, player, slot, undefined, mode);
       if (mode === 'setup') {
-        if (G.players.every(p => p.startSlot !== null)) { G.phase = 'play'; G.firstTurnAfterSetup = true; G.log.unshift('起始奖励选择完成，游戏开始。'); }
+        if (G.players.every(p => p.startSlot !== null)) beginPlayOrExpansionStoreSetup(G);
       } else {
-        G.pending = null;
+        if (G.pending && G.pending.type === 'start' && G.pending.player === ctx.currentPlayer && (G.pending.cargoDone !== undefined || G.pending.cartDone !== undefined)) {
+          G.pending.baseDone = true; G.pending.actionsDone = 1;
+          finishExpansionActionIfReady(G);
+        } else G.pending = null;
       }
-      G.confirmationKind = mode === 'setup' ? 'setup' : 'return';
+      G.confirmationKind = mode === 'setup' ? 'setup' : G.pending?.type === 'start' ? null : 'return';
     },
     chooseStartResource: ({ G, ctx }, resource: Resource) => {
       const choice = G.startChoice, player = G.players[Number(ctx.currentPlayer)];
@@ -234,11 +285,208 @@ export const HeavenAle: Game<AleState> = {
       finalizeStartChoice(G, player, choice.slot, resource, choice.mode);
       G.startChoice = null;
       if (choice.mode === 'setup') {
-        if (G.players.every(p => p.startSlot !== null)) { G.phase = 'play'; G.firstTurnAfterSetup = true; G.log.unshift('起始奖励选择完成，游戏开始。'); }
+        if (G.players.every(p => p.startSlot !== null)) beginPlayOrExpansionStoreSetup(G);
       } else {
-        G.pending = null;
+        if (G.pending && G.pending.type === 'start' && G.pending.player === ctx.currentPlayer && (G.pending.cargoDone !== undefined || G.pending.cartDone !== undefined)) {
+          G.pending.baseDone = true; G.pending.actionsDone = 1;
+          finishExpansionActionIfReady(G);
+        } else G.pending = null;
       }
-      G.confirmationKind = choice.mode === 'setup' ? 'setup' : 'return';
+      G.confirmationKind = choice.mode === 'setup' ? 'setup' : G.pending?.type === 'start' ? null : 'return';
+    },
+    assignExpansionStoreTile: ({ G, ctx }, hutIndex: number, tileId: number, pairedHutIndex?: number, pairedTileId?: number) => {
+      const playerIndex = Number(ctx.currentPlayer), board = G.expansion?.players[playerIndex];
+      if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion || !board || G.confirmationKind || G.expansion.storeSetupReady[playerIndex]) return;
+      const hutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+      if (!hutIndexes.includes(hutIndex) || !Number.isInteger(tileId) || tileId < 1 || tileId > 7) return;
+      const storeSlot = hutIndexes.indexOf(hutIndex);
+      const hasPairedAssignment = pairedHutIndex !== undefined || pairedTileId !== undefined;
+      let pairedSlot = -1;
+      if (hasPairedAssignment) {
+        if (pairedHutIndex === undefined || pairedTileId === undefined || !hutIndexes.includes(pairedHutIndex) || !Number.isInteger(pairedTileId) || pairedTileId < 1 || pairedTileId > 7 || pairedTileId === tileId) return;
+        pairedSlot = hutIndexes.indexOf(pairedHutIndex);
+        const emptySlots = board.hutStoreTiles.flatMap((id, slot) => id === null ? [slot] : []);
+        const remainingIds = Array.from({ length: 7 }, (_, index) => index + 1).filter(id => !board.hutStoreTiles.includes(id));
+        if (pairedSlot === storeSlot || !emptySlots.includes(storeSlot) || !emptySlots.includes(pairedSlot) || emptySlots.length !== 2 || remainingIds.length !== 2 || !remainingIds.includes(tileId) || !remainingIds.includes(pairedTileId)) return;
+      }
+      saveActionSnapshot(G); saveStepSnapshot(G);
+      const previousSlot = board.hutStoreTiles.indexOf(tileId);
+      if (previousSlot >= 0 && previousSlot !== storeSlot) board.hutStoreTiles[previousSlot] = board.hutStoreTiles[storeSlot];
+      board.hutStoreTiles[storeSlot] = tileId;
+      if (hasPairedAssignment) board.hutStoreTiles[pairedSlot] = pairedTileId!;
+    },
+    placeRemainingExpansionStoreTiles: ({ G, ctx }, tileIds: number[]) => {
+      const playerIndex = Number(ctx.currentPlayer), board = G.expansion?.players[playerIndex];
+      if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion || !board || G.confirmationKind || G.expansion.storeSetupReady[playerIndex] || !Array.isArray(tileIds)) return;
+      const hutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+      const emptySlots = board.hutStoreTiles.flatMap((id, slot) => id === null ? [slot] : []);
+      const remainingIds = Array.from({ length: 7 }, (_, index) => index + 1).filter(id => !board.hutStoreTiles.includes(id));
+      if (tileIds.length !== emptySlots.length || tileIds.length !== remainingIds.length || new Set(tileIds).size !== tileIds.length || tileIds.some(id => !remainingIds.includes(id))) return;
+      saveActionSnapshot(G); saveStepSnapshot(G);
+      emptySlots.forEach((slot, index) => { board.hutStoreTiles[slot] = tileIds[index]; });
+      G.log.unshift(`${G.players[playerIndex].name} 随机放置了剩余的 ${tileIds.length} 个存储板块。`);
+    },
+    finishExpansionStoreSetup: ({ G, ctx }) => {
+      const playerIndex = Number(ctx.currentPlayer), board = G.expansion?.players[playerIndex];
+      if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion || !board || G.confirmationKind || G.expansion.storeSetupReady[playerIndex] || board.hutStoreTiles.some(id => id === null)) return;
+      saveActionSnapshot(G); saveStepSnapshot(G);
+      G.expansion.storeSetupReady[playerIndex] = true;
+      G.confirmationKind = 'setup';
+      G.log.unshift(`${G.players[playerIndex].name} 完成扩展存储板块配置。`);
+    },
+    resolveExpansionStore: ({ G, ctx }, side: 'front' | 'back', cargo: ExpansionCargo[] = [], destinations: number[] = [], breweryIndex?: number) => {
+      const expansion = G.expansion, prompt = expansion?.storePrompts?.[0];
+      if (!G.expansionEnabled || !expansion || !prompt || prompt.playerIndex !== Number(ctx.currentPlayer) || G.confirmationKind) return;
+      const board = expansion.players[prompt.playerIndex], player = G.players[prompt.playerIndex];
+      const hutSlot = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []).indexOf(prompt.hutIndex);
+      if (!board || !player || hutSlot < 0 || board.hutStoreUsed[hutSlot] || board.hutStoreTiles[hutSlot] !== prompt.tileId) return;
+      if (side === 'back') {
+        const slot = STORAGE_UNLOCK_ORDER.find(candidate => board.storageExtensions[UNLOCKABLE_STORAGE_SLOTS.indexOf(candidate)] === null);
+        const extensionIndex = slot === undefined ? -1 : UNLOCKABLE_STORAGE_SLOTS.indexOf(slot);
+        if (extensionIndex < 0 || slot === undefined) return;
+        saveStepSnapshot(G);
+        board.storageExtensions[extensionIndex] = { kind: 'storage' };
+        board.storageUnlocked[slot] = true;
+        G.log.unshift(`${player.name} 将存储板块 ${prompt.tileId} 翻至背面，增加 1 个常规存储格。`);
+      } else {
+        if (prompt.tileId === 7) {
+          if (!cargo.length || new Set(cargo).size !== cargo.length || cargo.some(kind => kind !== 'barrel' && kind !== 'straw')) return;
+          if (cargo.includes('barrel') && expansion.barrelSupply < 1 || cargo.includes('straw') && expansion.strawSupply < 1) return;
+          const regularSlots = emptyExpansionStorageSlots(board);
+          const targets = destinations.length ? destinations : cargo.map((_, index) => regularSlots[index] ?? -99);
+          if (targets.length !== cargo.length || new Set(targets).size !== targets.length) return;
+          const temporaryCount = targets.filter(slot => slot === -1).length;
+          if (temporaryCount > 1 || temporaryCount && (board.temporaryStorage != null || player.coins < 4 * temporaryCount)) return;
+          if (targets.some(slot => slot !== -1 && (!Number.isInteger(slot) || !regularSlots.includes(slot)))) return;
+          saveStepSnapshot(G);
+          cargo.forEach((kind, index) => {
+            const slot = targets[index];
+            if (slot === -1) { player.coins -= 4; board.temporaryStorage = kind; }
+            else board.storage[slot] = kind;
+            if (kind === 'barrel') expansion.barrelSupply--; else expansion.strawSupply--;
+          });
+          const placed = cargo.map((kind, index) => `${kind === 'barrel' ? '桶装酒' : '干草'}放入${targets[index] === -1 ? '临时存储格' : '常规存储格'}`).join('，');
+          G.log.unshift(`${player.name} 使用存储板块 7，从供应堆获得${cargo.map(kind => kind === 'barrel' ? '1桶桶装酒' : '1捆干草').join('和')}（${placed}${temporaryCount ? `，支付 ${temporaryCount * 4} 钱币` : ''}）。`);
+        } else if (prompt.tileId === 1 || prompt.tileId === 2) {
+          const extensionIndex = board.storageExtensions.findIndex(extension => extension === null);
+          if (extensionIndex < 0) return;
+          saveStepSnapshot(G);
+          const bonus = prompt.tileId === 1 ? 2 : 3;
+          board.storageExtensions[extensionIndex] = { kind: 'effect', tileId: prompt.tileId };
+          board.cartStepBonus += bonus;
+          G.log.unshift(`${player.name} 使用存储板块 ${prompt.tileId}，今后推车骰子移动距离永久增加 ${bonus} 格。`);
+        } else if (prompt.tileId === 3 || prompt.tileId === 4) {
+          if (breweryIndex !== 0 && breweryIndex !== 1) return;
+          board.breweryUpgradeTiles ??= [null, null];
+          if (board.breweryUpgradeTiles[breweryIndex] !== null) return;
+          saveStepSnapshot(G);
+          const score = prompt.tileId === 3 ? 5 : 6;
+          board.breweryUpgradeTiles[breweryIndex] = prompt.tileId;
+          board.breweryScores[breweryIndex] = score;
+          G.log.unshift(`${player.name} 使用存储板块 ${prompt.tileId} 覆盖第 ${breweryIndex + 1} 酒馆的基础计分，每桶改为 ${score} 分。`);
+        } else if (prompt.tileId === 5 || prompt.tileId === 6) {
+          const steps = prompt.tileId === 5 ? 4 : 6, choices = validCartLoadChoices(board, steps);
+          if (!choices.length) return;
+          saveStepSnapshot(G);
+          G.log.unshift(`${player.name} 使用存储板块 ${prompt.tileId}，立即推动推车 ${steps} 格（不计骰子加成）。`);
+          expansion.cartMovement = { playerIndex: prompt.playerIndex, remaining: steps, nextLocation: -1, loadChoices: choices, completion: 'store', startPosition: board.cartPosition, deliveredAtStart: board.deliveredBarrels };
+        } else return;
+      }
+      board.hutStoreUsed[hutSlot] = true;
+      expansion.storePrompts.shift();
+      if (side === 'front' && (prompt.tileId === 5 || prompt.tileId === 6)) advanceExpansionCart(G);
+      if (!expansion.cartMovement && !expansion.storePrompts.length && !G.shedChoices.length) finishPurchaseIfNoOptions(G, player);
+    },
+    skipExpansionBaseAction: ({ G, ctx }) => {
+      const pending = G.pending, player = G.players[Number(ctx.currentPlayer)], expansion = G.expansion;
+      if (!G.expansionEnabled || !expansion || !pending || pending.player !== ctx.currentPlayer || pending.baseDone || G.confirmationKind || !player) return;
+      if (!canTakeExpansionCargo(G, player, pending.space) && !canUseExpansionCart(G, player, pending.space)) return;
+      saveStepSnapshot(G);
+      pending.baseDone = true;
+      G.log.unshift(`${player.name} 跳过基础行动，改执行该格可用的扩展行动。`);
+    },
+    takeExpansionCargo: ({ G, ctx }, kind: ExpansionCargo, storageSlot: number) => {
+      const pending = G.pending, playerIndex = Number(ctx.currentPlayer), player = G.players[playerIndex], expansion = G.expansion;
+      if (!G.expansionEnabled || !expansion || !pending || pending.player !== ctx.currentPlayer || !pending.baseDone || pending.cargoDone || G.confirmationKind || !player) return;
+      if (kind !== 'barrel' && kind !== 'straw') return;
+      const cargoPile = expansion.cargoByTrackSpace[pending.space], cargoIndex = cargoPile?.indexOf(kind) ?? -1, board = expansion.players[playerIndex];
+      if (cargoIndex < 0 || !board) return;
+      if (storageSlot === -1) {
+        if (board.temporaryStorage || player.coins < 4) return;
+      } else {
+        if (!Number.isInteger(storageSlot) || storageSlot < 0 || storageSlot >= board.storage.length || !board.storageUnlocked[storageSlot] || board.storage[storageSlot] !== null) return;
+      }
+      saveStepSnapshot(G);
+      if (storageSlot === -1) { player.coins -= 4; board.temporaryStorage = kind; }
+      else board.storage[storageSlot] = kind;
+      cargoPile.splice(cargoIndex, 1);
+      pending.cargoTaken = (pending.cargoTaken ?? 0) + 1;
+      G.log.unshift(`${player.name} 从第 ${pending.space + 1} 格拿取${kind === 'barrel' ? '1 桶桶装酒' : '1 捆干草'}${storageSlot === -1 ? '，放入临时存储格并支付4钱币' : `，放入存储格 ${storageSlot + 1}`}。`);
+    },
+    finishExpansionCargo: ({ G, ctx }) => {
+      const pending = G.pending;
+      if (!G.expansionEnabled || !G.expansion || !pending || pending.player !== ctx.currentPlayer || !pending.baseDone || pending.cargoDone || G.confirmationKind) return;
+      if ((pending.actionsDone ?? 0) === 0 && (pending.cargoTaken ?? 0) === 0 && !canUseExpansionCart(G, G.players[Number(ctx.currentPlayer)], pending.space)) return;
+      saveStepSnapshot(G);
+      pending.cargoDone = true;
+      finishExpansionActionIfReady(G);
+    },
+    skipExpansionCart: ({ G, ctx }) => {
+      const pending = G.pending;
+      if (!G.expansionEnabled || !G.expansion || !pending || pending.player !== ctx.currentPlayer || !pending.baseDone || !pending.cargoDone || pending.cartDone || G.confirmationKind || G.expansion.cartMovement) return;
+      if (!canUseExpansionCart(G, G.players[Number(ctx.currentPlayer)], pending.space)) return;
+      // Skipping the base action is only legal when another action on this
+      // space is actually performed. Do not let a player skip both the base
+      // action and every available expansion action to end with a no-op turn.
+      if ((pending.purchases ?? 0) === 0 && (pending.actionsDone ?? 0) === 0 && (pending.cargoTaken ?? 0) === 0) return;
+      saveStepSnapshot(G);
+      pending.cartDone = true;
+      G.log.unshift(`${G.players[Number(ctx.currentPlayer)].name} 跳过手推车行动。`);
+      finishExpansionActionIfReady(G);
+    },
+    useExpansionCart: ({ G, ctx }) => {
+      const pending = G.pending, playerIndex = Number(ctx.currentPlayer), player = G.players[playerIndex], expansion = G.expansion;
+      if (!G.expansionEnabled || !expansion || !pending || pending.player !== ctx.currentPlayer || !pending.baseDone || !pending.cargoDone || pending.cartDone || G.confirmationKind || expansion.cartMovement || !player || !canUseExpansionCart(G, player, pending.space)) return;
+      const board = expansion.players[playerIndex], steps = expansion.cartDieValue + board.cartStepBonus;
+      const loadChoices = validCartLoadChoices(board, steps);
+      saveStepSnapshot(G);
+      expansion.cartMovement = { playerIndex, remaining: steps, nextLocation: -1, loadChoices, completion: 'action', startPosition: board.cartPosition, deliveredAtStart: board.deliveredBarrels };
+      G.log.unshift(`${player.name} 使用手推车骰子，移动 ${steps} 格。`);
+      advanceExpansionCart(G);
+    },
+    chooseExpansionCartLoad: ({ G, ctx }, loadCount: number) => {
+      const expansion = G.expansion, movement = expansion?.cartMovement, pending = G.pending;
+      if (!G.expansionEnabled || !expansion || !movement || !pending || movement.playerIndex !== Number(ctx.currentPlayer) || pending.player !== ctx.currentPlayer || movement.nextLocation < 0 || G.confirmationKind || !movement.loadChoices.includes(loadCount)) return;
+      const board = expansion.players[movement.playerIndex], player = G.players[movement.playerIndex];
+      if (!board || !player) return;
+      const startedAt = movement.startPosition ?? board.cartPosition;
+      const otherActionDone = (pending.purchases ?? 0) > 0 || (pending.actionsDone ?? 0) > 0 || (pending.cargoTaken ?? 0) > 0;
+      const cartActionDone = loadCount > 0 || startedAt !== 0 || board.deliveredBarrels > (movement.deliveredAtStart ?? board.deliveredBarrels);
+      if (movement.completion === 'action' && loadCount === 0 && !otherActionDone && !cartActionDone) return;
+      saveStepSnapshot(G);
+      if (loadCount === 0) {
+        board.cartPosition = 0;
+        G.log.unshift(startedAt === 0 && movement.completion === 'action'
+          ? `${player.name} 未装载桶装酒，推车留在修道院起点；视为跳过推车行动。`
+          : `${player.name} 未装载桶装酒，推车移动后停在修道院起点。`);
+        const completion = movement.completion;
+        expansion.cartMovement = null;
+        if (completion === 'action') {
+          pending.cartDone = true;
+          if (cartActionDone) pending.actionsDone = (pending.actionsDone ?? 0) + 1;
+          finishExpansionActionIfReady(G);
+          finishPurchaseIfNoOptions(G, player);
+        }
+        return;
+      }
+      const removedBarrels = removeStoredCargo(board, 'barrel', loadCount), removedStraw = removeStoredCargo(board, 'straw', loadCount);
+      if (removedBarrels !== loadCount || removedStraw !== loadCount) return;
+      board.cartBarrels += loadCount;
+      movement.loadGatePassed = true;
+      G.log.unshift(`${player.name} 装载 ${loadCount} 桶桶装酒，消耗 ${loadCount} 捆干草。`);
+      movement.nextLocation = -1;
+      movement.loadChoices = [];
+      advanceExpansionCart(G);
     },
     moveTo: ({ G, ctx }, index: number) => {
       const player = G.players[Number(ctx.currentPlayer)];
@@ -247,7 +495,7 @@ export const HeavenAle: Game<AleState> = {
       if (space.type === 'start') {
         saveActionSnapshot(G);
         saveStepSnapshot(G);
-        player.position = index; player.startSlot = null; G.pending = { space: index, type: 'start', player: ctx.currentPlayer };
+        player.position = index; player.startSlot = null; G.pending = { space: index, type: 'start', player: ctx.currentPlayer, ...expansionPendingFields(G, player, index, false, 0) };
         return;
       }
       saveActionSnapshot(G);
@@ -256,18 +504,27 @@ export const HeavenAle: Game<AleState> = {
       if (space.type === 'barrel') {
         const claimed = awardBarrels(G, player);
         G.log.unshift(`${player.name} 到达酒桶成就格，领取 ${claimed.length} 个酒桶：${claimed.map(b => `目标 ${String(b.id).padStart(2, '0')} ${b.size === 'large' ? '大酒桶（4分）' : '小酒桶（2分）'}`).join('、')}。`);
-        G.pending = null; G.confirmationKind = 'turn';
+        const expansionActions = expansionPendingFields(G, player, index, true, claimed.length ? 1 : 0);
+        if (expansionActions.cargoDone !== undefined || expansionActions.cartDone !== undefined) G.pending = { space: index, type: space.type, player: ctx.currentPlayer, ...expansionActions };
+        else { G.pending = null; G.confirmationKind = 'turn'; }
         return;
       }
-      G.pending = { space: index, type: space.type, player: ctx.currentPlayer, purchases: 0 };
+      const expansionActions = expansionPendingFields(G, player, index, false, 0);
+      const hasExpansionAction = expansionActions.cargoDone !== undefined || expansionActions.cartDone !== undefined;
+      const baseActionAvailable = canPerformBaseAction(G, player, index);
+      G.pending = {
+        space: index, type: space.type, player: ctx.currentPlayer, purchases: 0,
+        ...expansionActions,
+        ...(hasExpansionAction && !baseActionAvailable ? { baseDone: true } : {}),
+      };
     },
     buyTile: ({ G, ctx }, tileId: string, cellIndex: number) => {
       const p = G.players[Number(ctx.currentPlayer)], pending = G.pending;
-      if (G.confirmationKind || !pending || pending.player !== ctx.currentPlayer || !['resource', 'monk'].includes(pending.type)) return;
+      if (G.confirmationKind || !pending || pending.player !== ctx.currentPlayer || pending.baseDone || !['resource', 'monk'].includes(pending.type)) return;
       const space = G.track[pending.space];
       const market = pending.type === 'resource' ? G.resources[space.sourceIndex ?? -1] : G.monks[space.sourceIndex ?? -1];
       const tileIndex = market?.findIndex(t => t.id === tileId) ?? -1, cell = p.board[cellIndex], side = gardenCells[cellIndex]?.side;
-      if (tileIndex < 0 || !cell || cell.hut || cell.tile || !side) return;
+      if ((G.expansion?.storePrompts?.length ?? 0) > 0 || tileIndex < 0 || !cell || cell.hut || cell.tile || !side) return;
       const tile = market[tileIndex], baseCost = tileBaseCost(tile, space.sourceIndex), cost = baseCost * (side === 'sun' ? 2 : 1);
       if (p.coins < cost) return;
       saveStepSnapshot(G);
@@ -282,14 +539,19 @@ export const HeavenAle: Game<AleState> = {
     },
     finishPurchase: ({ G, ctx }) => {
       const pending = G.pending;
-      if (G.confirmationKind || G.shedChoices.length || !pending || pending.player !== ctx.currentPlayer || !['resource', 'monk'].includes(pending.type) || (pending.purchases ?? 0) < 1) return;
+      if (G.confirmationKind || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.shedChoices.length || !pending || pending.baseDone || pending.player !== ctx.currentPlayer || !['resource', 'monk'].includes(pending.type) || (pending.purchases ?? 0) < 1) return;
       saveStepSnapshot(G);
+      if (pending.cargoDone !== undefined || pending.cartDone !== undefined) {
+        pending.baseDone = true; pending.actionsDone = 1;
+        finishExpansionActionIfReady(G);
+        return;
+      }
       G.pending = null;
       G.confirmationKind = 'turn';
     },
     takeScore: ({ G, ctx }, category: 'A' | 'B' | 'C', option: string | number) => {
       const p = G.players[Number(ctx.currentPlayer)], pending = G.pending;
-      if (G.confirmationKind || !pending || pending.player !== ctx.currentPlayer || pending.type !== 'score') return;
+      if (G.confirmationKind || !pending || pending.baseDone || pending.player !== ctx.currentPlayer || pending.type !== 'score') return;
       const space = G.track[pending.space], markerIndex = space.sourceIndex ?? -1;
       if (G.scores[markerIndex] <= 0 || !['A', 'B', 'C'].includes(category) || (space.scoreType !== 'ABC' && space.scoreType !== category) || !scoreChoices(p, category).some(value => String(value) === String(option))) return;
       saveStepSnapshot(G);
@@ -324,12 +586,18 @@ export const HeavenAle: Game<AleState> = {
         G.privilegePrompts.push({ kind: 'pair', pairIndex });
         G.log.unshift(`${p.name} 完成第 ${pairIndex + 1} 组计分标记，请放置一张特权卡或永久跳过。`);
       }
-      G.pending = null;
-      G.confirmationKind = G.privilegePrompts.length ? null : 'turn';
+      if (pending.cargoDone !== undefined || pending.cartDone !== undefined) {
+        pending.baseDone = true; pending.actionsDone = 1;
+        G.confirmationKind = null;
+        finishExpansionActionIfReady(G);
+      } else {
+        G.pending = null;
+        G.confirmationKind = G.privilegePrompts.length ? null : 'turn';
+      }
     },
     toggleShedChoice: ({ G, ctx }, cellIndex: number) => {
       const choice = G.shedChoices[0], player = G.players[Number(ctx.currentPlayer)];
-      if (!choice || !player || G.confirmationKind || !canSelectShedCell(choice, cellIndex)) return;
+      if (!choice || !player || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.confirmationKind || !canSelectShedCell(choice, cellIndex)) return;
       saveStepSnapshot(G);
       const selectedAt = choice.selected.indexOf(cellIndex);
       if (selectedAt >= 0 && choice.mode === 'opposite') choice.selected = [];
@@ -341,7 +609,7 @@ export const HeavenAle: Game<AleState> = {
     },
     completeShedChoice: ({ G, ctx }) => {
       const choice = G.shedChoices[0], player = G.players[Number(ctx.currentPlayer)];
-      if (!choice || !player || G.confirmationKind || !validShedSelection(choice)) return;
+      if (!choice || !player || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.confirmationKind || !validShedSelection(choice)) return;
       saveStepSnapshot(G);
       const rewards: string[] = [];
       for (const index of choice.selected) {
@@ -362,7 +630,7 @@ export const HeavenAle: Game<AleState> = {
         saveStepSnapshot(G);
         p.privilegePairs[prompt.pairIndex] = 'skip';
         G.log.unshift(`${p.name} 跳过第 ${prompt.pairIndex + 1} 组特权卡奖励；之后不能补放。`);
-        G.privilegePrompts.shift(); if (!G.privilegePrompts.length) G.confirmationKind = 'turn';
+        G.privilegePrompts.shift(); if (!G.privilegePrompts.length) G.confirmationKind = G.pending?.baseDone ? null : 'turn';
         return;
       }
       if (!['A', 'B', 'C', 'D', 'E'].includes(card || '')) return;
@@ -392,7 +660,7 @@ export const HeavenAle: Game<AleState> = {
       }
       p.privileges = p.privileges.filter(c => c !== card);
       p.privilegePairs[prompt.pairIndex] = card;
-      G.privilegePrompts.shift(); if (!G.privilegePrompts.length) G.confirmationKind = 'turn';
+      G.privilegePrompts.shift(); if (!G.privilegePrompts.length) G.confirmationKind = G.pending?.baseDone ? null : 'turn';
     },
     discardPrivilege: ({ G, ctx }, card: string) => {
       const p = G.players[Number(ctx.currentPlayer)];
@@ -416,10 +684,17 @@ export const HeavenAle: Game<AleState> = {
       Object.assign(G, snapshot);
       G.stepUndoSnapshots = history;
     },
-    confirmAction: ({ G, events }) => {
-      if (!G.undoSnapshot || !G.confirmationKind) return;
+    confirmAction: ({ G, ctx, events, random }) => {
+      if (!G.undoSnapshot || !G.confirmationKind || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.expansion?.cartMovement) return;
       const kind = G.confirmationKind;
       G.undoSnapshot = null; G.stepUndoSnapshots = []; G.confirmationKind = null;
+      if (G.phase === 'setup' && G.setupStage === 'expansion-stores' && kind === 'setup' && G.expansion?.storeSetupReady.every(Boolean)) {
+        initializeFirstExpansionRound(G.expansion, G.track.length - 1, random.Die(6));
+        G.phase = 'play'; G.setupStage = null; G.firstTurnAfterSetup = true;
+        G.log.unshift('扩展首轮设置完成：推车骰子与首批桶装酒、干草已放置。');
+        G.log.unshift('所有玩家完成并确认扩展准备，游戏开始。');
+      }
+      if (G.phase === 'play' && kind !== 'free' && kind !== 'setup' && G.expansionEnabled && G.expansion) updateExpansionCartDie(G, Number(ctx.currentPlayer), () => random.Die(6));
       if (kind === 'return') finishRound(G);
       if (kind !== 'free') events.endTurn();
     },
@@ -441,10 +716,15 @@ function saveStepSnapshot(G: AleState) {
 }
 function finishPurchaseIfNoOptions(G: AleState, p: PlayerState) {
   const pending = G.pending;
-  if (!pending || !['resource', 'monk'].includes(pending.type) || (pending.purchases ?? 0) < 1 || G.shedChoices.length) return;
+  if (!pending || (G.expansion?.storePrompts?.length ?? 0) > 0 || !['resource', 'monk'].includes(pending.type) || (pending.purchases ?? 0) < 1 || G.shedChoices.length) return;
   const space = G.track[pending.space];
   const market = pending.type === 'resource' ? G.resources[space.sourceIndex ?? -1] : G.monks[space.sourceIndex ?? -1];
   if (canBuyFrom(p, market ?? [], space.sourceIndex)) return;
+  if (pending.cargoDone !== undefined || pending.cartDone !== undefined) {
+    pending.baseDone = true; pending.actionsDone = 1;
+    finishExpansionActionIfReady(G);
+    return;
+  }
   G.pending = null;
   G.confirmationKind = 'turn';
 }
@@ -460,8 +740,21 @@ function finalizeStartChoice(G: AleState, player: PlayerState, slot: number, res
   if (slot === 1) player.coins += 2;
   else if (slot === 2) player.brewer = Math.min(20, player.brewer + 1);
   else if (slot === 3 && resource) advance(player, resource, 2);
-  if (mode === 'return') { player.position = -1; player.retired = true; }
+  if (mode === 'return') {
+    const playerIndex = G.players.indexOf(player);
+    if (G.expansion && player.position === G.expansion.cartDieSpace) G.expansion.turnEndDieStopPlayer = playerIndex;
+    player.position = -1; player.retired = true;
+  }
   G.log.unshift(`${player.name} 选择${startSlots[slot].label}位置，获得${startSlots[slot].reward}${slot === 3 && resource ? `（${resourceLabels[resource]} +2）` : ''}。`);
+}
+function beginPlayOrExpansionStoreSetup(G: AleState) {
+  if (G.expansionEnabled && G.expansion) {
+    G.setupStage = 'expansion-stores';
+    G.log.unshift('起始奖励选择完成。每位玩家将自己的7块存储板块自由分配到7个棚屋上。');
+    return;
+  }
+  G.phase = 'play'; G.setupStage = null; G.firstTurnAfterSetup = true;
+  G.log.unshift('起始奖励选择完成，游戏开始。');
 }
 function activate(p: PlayerState, tile: Tile, side?: 'sun' | 'shade') {
   if (tile.resource) { if (side === 'sun') advance(p, tile.resource, tile.value); else p.coins += tile.value; }
@@ -539,6 +832,11 @@ function settleHuts(G: AleState, p: PlayerState) {
       const mode = range === 1 ? 'one' : range === 2 ? 'opposite' : range === 3 ? 'nonAdjacent' : 'any';
       p.brewer = Math.min(20, p.brewer + brewerAdvance);
       hut.completed = true; hut.shedType = range; hut.shedValue = value;
+      if (G.expansionEnabled && G.expansion) {
+        const playerIndex = G.players.indexOf(p), hutSlot = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []).indexOf(i);
+        const tileId = G.expansion.players[playerIndex]?.hutStoreTiles[hutSlot];
+        if (tileId && !G.expansion.players[playerIndex].hutStoreUsed[hutSlot]) G.expansion.storePrompts.push({ playerIndex, hutIndex: i, tileId });
+      }
       G.log.unshift(`${p.name} 围住棚屋，周围产值 ${value}：酿酒师推进 ${brewerAdvance} 格，可激活 ${activateCount} 块相邻板块。`);
       if (activateCount > 0) G.shedChoices.push({ hutIndex: i, value, brewerAdvance, activateCount, mode, candidates: neighbors, selected: [] });
     }
@@ -560,7 +858,8 @@ export function barrelMet(p: PlayerState, id: number) {
   }
 }
 export function availableBarrelIds(G: AleState, p: PlayerState) {
-  return G.barrels.filter(stock => stock.remaining > 0 && !p.claimedBarrels.some(barrel => barrel.id === stock.id) && barrelMet(p, stock.id)).map(stock => stock.id);
+  return G.barrels.filter(stock => stock.remaining > 0 && !p.claimedBarrels.some(barrel => barrel.id === stock.id)
+    && (stock.id === 13 ? !!G.expansion && (G.expansion.players[G.players.indexOf(p)]?.deliveredBarrels ?? 0) >= 3 : barrelMet(p, stock.id))).map(stock => stock.id);
 }
 function awardBarrels(G: AleState, p: PlayerState) {
   const claimed: { id: number; size: 'large' | 'small' }[] = [];
@@ -582,11 +881,122 @@ export function canBuyFrom(p: PlayerState, market: Tile[], sourceIndex?: number)
 export function canMoveTo(G: AleState, p: PlayerState, index: number) {
   if (G.phase !== 'play' || p.retired || G.pending || G.confirmationKind || G.privilegePrompts.length || index <= p.position || index >= G.track.length) return false;
   const space=G.track[index];
-  if (space.type==='resource') return canBuyFrom(p,G.resources[space.sourceIndex ?? -1] ?? [],space.sourceIndex);
-  if (space.type==='monk') return canBuyFrom(p,G.monks[space.sourceIndex ?? -1] ?? [],space.sourceIndex);
-  if (space.type==='score') return G.scores[space.sourceIndex ?? -1]>0 && canScore(p,space.scoreType);
-  if (space.type==='barrel') return availableBarrelIds(G,p).length>0;
-  return space.type==='start';
+  if (space.type==='start' || canPerformBaseAction(G, p, index)) return true;
+  return G.expansionEnabled && (canTakeExpansionCargo(G, p, index) || canUseExpansionCart(G, p, index));
+}
+function canPerformBaseAction(G: AleState, p: PlayerState, index: number) {
+  const space = G.track[index];
+  if (!space) return false;
+  if (space.type === 'resource') return canBuyFrom(p, G.resources[space.sourceIndex ?? -1] ?? [], space.sourceIndex);
+  if (space.type === 'monk') return canBuyFrom(p, G.monks[space.sourceIndex ?? -1] ?? [], space.sourceIndex);
+  if (space.type === 'score') return G.scores[space.sourceIndex ?? -1] > 0 && canScore(p, space.scoreType);
+  if (space.type === 'barrel') return availableBarrelIds(G, p).length > 0;
+  return space.type === 'start';
+}
+export function canTakeExpansionCargo(G: AleState, p: PlayerState, spaceIndex: number) {
+  const expansion = G.expansion, playerIndex = G.players.indexOf(p);
+  return !!expansion && playerIndex >= 0 && !!expansion.cargoByTrackSpace[spaceIndex]?.length && canStoreExpansionCargo(expansion.players[playerIndex], p.coins);
+}
+function canUseExpansionCart(G: AleState, p: PlayerState, spaceIndex: number) {
+  const expansion = G.expansion, playerIndex = G.players.indexOf(p);
+  if (!expansion || playerIndex < 0 || expansion.cartDieSpace !== spaceIndex) return false;
+  const board = expansion.players[playerIndex], steps = expansion.cartDieValue + board.cartStepBonus;
+  return validCartLoadChoices(board, steps).some(load => {
+    const result = simulateCartMove(board, board.cartPosition, steps, load);
+    // Declining to load is a skipped-cart outcome only if the cart began at
+    // the Abbey. Reaching the Abbey from elsewhere still performs movement.
+    return !!result && !(board.cartPosition === 0 && load === 0 && result.stoppedAtLoadGate && result.position === 0 && result.barrels === board.cartBarrels);
+  });
+}
+function expansionPendingFields(G: AleState, p: PlayerState, spaceIndex: number, baseDone: boolean, actionsDone: number) {
+  if (!G.expansionEnabled || !G.expansion) return {};
+  const cargoAvailable = canTakeExpansionCargo(G, p, spaceIndex), cartAvailable = canUseExpansionCart(G, p, spaceIndex);
+  if (!cargoAvailable && !cartAvailable) return {};
+  return { baseDone, cargoDone: !cargoAvailable, cartDone: !cartAvailable, actionsDone };
+}
+function finishExpansionActionIfReady(G: AleState) {
+  const pending = G.pending;
+  if (!pending || !pending.baseDone || pending.cargoDone === false || pending.cartDone === false) return;
+  if (pending.cargoDone === undefined && pending.cartDone === undefined) return;
+  const kind = pending.type;
+  G.pending = null;
+  G.confirmationKind = kind === 'start' ? 'return' : 'turn';
+}
+function advanceExpansionCart(G: AleState) {
+  const expansion = G.expansion, movement = expansion?.cartMovement, pending = G.pending;
+  if (!expansion || !movement || !pending) return;
+  const board = expansion.players[movement.playerIndex], player = G.players[movement.playerIndex];
+  if (!board || !player) return;
+  while (movement.remaining > 0) {
+    const next = (board.cartPosition + 1) % cartRoute.length;
+    const gate = cartGateBeforeLocation[next];
+    if (gate === 'load' && !movement.loadGatePassed) {
+      movement.nextLocation = next;
+      return;
+    }
+    if (gate === 'deliver-one') {
+      if (board.cartBarrels > 0) {
+        board.cartBarrels--;
+        board.breweryDeliveries[(cartRoute[next].brewery ?? 1) - 1]++;
+        board.deliveredBarrels++;
+        G.log.unshift(`${player.name} 穿过酒厂门，向第 ${cartRoute[next].brewery} 酒馆交付 1 桶桶装酒。`);
+      }
+    } else if (gate === 'deliver-all') {
+      const delivered = board.cartBarrels;
+      board.breweryDeliveries[2] += delivered;
+      board.deliveredBarrels += delivered;
+      board.cartBarrels = 0;
+      G.log.unshift(`${player.name} 穿过第四道门，向第 3 酒馆交付剩余 ${delivered} 桶桶装酒。`);
+    }
+    if (gate === 'load') movement.loadGatePassed = false;
+    board.cartPosition = next;
+    movement.remaining--;
+  }
+  const location = cartRoute[board.cartPosition];
+  G.log.unshift(`${player.name} 的推车停在${location.name}${board.cartBarrels ? `，车上剩余 ${board.cartBarrels} 桶` : ''}。`);
+  const completion = movement.completion;
+  expansion.cartMovement = null;
+  if (completion === 'action') {
+    pending.cartDone = true;
+    pending.actionsDone = (pending.actionsDone ?? 0) + 1;
+    finishExpansionActionIfReady(G);
+    finishPurchaseIfNoOptions(G, player);
+  }
+}
+function updateExpansionCartDie(G: AleState, endingPlayer: number, rollDie: () => number) {
+  const expansion = G.expansion;
+  if (!expansion || !G.players[endingPlayer]) return;
+  const oldSpace = expansion.cartDieSpace;
+  const playerStoppedOnDie = G.players[endingPlayer].position === oldSpace || expansion.turnEndDieStopPlayer === endingPlayer;
+  expansion.turnEndDieStopPlayer = null;
+  const allPassed = !expansion.cartDieWrappedThisRound && G.players.every(player => player.retired || player.position >= oldSpace);
+  if (!playerStoppedOnDie && !allPassed) return;
+  const roll = rollDie();
+  if (!Number.isInteger(roll) || roll < 1) return;
+  if (playerStoppedOnDie) {
+    // Count forward from the die's old cell. The old cell is step zero, so a
+    // roll of one places the die on the next cell, including the start cell
+    // when movement wraps around the end of the track.
+    expansion.cartDieSpace = (oldSpace + roll) % G.track.length;
+    G.log.unshift(`${G.players[endingPlayer].name} 回合结束时停在推车骰子格；掷出 ${roll}，骰子从原格顺时针移动 ${roll} 格至第 ${expansion.cartDieSpace + 1} 格。`);
+  } else {
+    // The last player to pass the old die space rolls it, but the special
+    // rule places it one cell ahead of the foremost pawn regardless of roll.
+    const startPosition = G.track.findIndex(space => space.type === 'start');
+    // A returned player is physically at the round's endpoint (the start
+    // area), even though finalizeStartChoice clears their linear track index.
+    // Treat that endpoint as furthest so the next cell wraps to track space 0.
+    const furthest = G.players.some(player => player.retired)
+      ? startPosition
+      : Math.max(...G.players.map(player => player.position >= 0 ? player.position : -1));
+    expansion.cartDieSpace = (furthest + 1) % G.track.length;
+    G.log.unshift(`${G.players[endingPlayer].name} 是最后一个经过推车骰子格的玩家；掷出 ${roll}，骰子放到最前方玩家棋子前一格（第 ${expansion.cartDieSpace + 1} 格）。`);
+  }
+  expansion.cartDieValue = roll;
+  // If the die lands behind every pawn (including at the first cell after
+  // the start/finish), they have already passed this new position for this
+  // round. Avoid treating every later turn as another all-passed event.
+  if (G.players.every(player => player.retired || player.position >= expansion.cartDieSpace)) expansion.cartDieWrappedThisRound = true;
 }
 function finishRound(G: AleState) {
   if (!G.players.every(p => p.retired)) return;
@@ -598,9 +1008,16 @@ function finishRound(G: AleState) {
   G.startPlayer = G.players.findIndex(p => p.startSlot === 0);
   if (G.startPlayer < 0) G.startPlayer = 0;
   G.round++; G.players.forEach(p => { p.retired = false; p.position = -1; });
+  if (G.expansion) G.expansion.cartDieWrappedThisRound = false;
   G.firstTurnAfterSetup = true;
   for (let i = 0; i < 15; i++) { const tile = G.resourceDecks[G.round - 1]?.[i]; if (tile) G.resources[i].push(tile); }
   for (let i = 0; i < 4; i++) { const tile = G.monkDecks[G.round - 1]?.[i]; if (tile) G.monks[i].push(tile); }
+  if (G.expansionEnabled && G.expansion) {
+    const barrels = Math.min(4, G.expansion.barrelSupply), straw = Math.min(4, G.expansion.strawSupply);
+    seedRoundCargo(G.expansion.cargoByTrackSpace, G.expansion.cartDieSpace, G.expansion.cartDieValue, barrels, straw);
+    G.expansion.barrelSupply -= barrels; G.expansion.strawSupply -= straw;
+    G.log.unshift(`扩展补充：主版图加入桶装酒 ${barrels} 个、干草 ${straw} 捆。`);
+  }
   G.scores = G.scores.map((_, i) => G.round === G.maxRounds && G.players.length <= 3 && (i === 1 || i === 2 || G.players.length === 3 && i === 3) ? 2 : 1);
   G.log.unshift(`第 ${G.round} 轮开始。`);
 }
@@ -656,7 +1073,7 @@ function applyFinalResourceAdjustments(p: PlayerState) {
   p.coins -= usedCoinSteps * 10;
   p.finalAdjusted = true;
 }
-export function scoreBreakdown(p: PlayerState) {
+export function scoreBreakdown(p: PlayerState, expansionBoard?: ExpansionState['players'][number]) {
   const { exchangeRate, victoryPoints } = brewerScoring(p.brewer);
   const tracks = p.finalAdjusted ? { ...p.tracks } : equalizeResourceTracks(p.tracks, exchangeRate);
   if (!p.finalAdjusted) {
@@ -671,11 +1088,16 @@ export function scoreBreakdown(p: PlayerState) {
   const minResource = Math.min(...resources.map(r => tracks[r]));
   const productionScore = resources.some(r => tracks[r] < 1) ? 0 : minResource * victoryPoints;
   const barrelScore = p.claimedBarrels.reduce((sum, barrel) => sum + (barrel.size === 'large' ? 4 : 2), 0) + (p.privilegePairs.includes('C') ? p.claimedBarrels.length : 0);
+  const expansionBarrelScore = expansionBoard
+    ? expansionBoard.breweryDeliveries.reduce((sum, count, index) => sum + count * expansionBoard.breweryScores[index], 0)
+      + storedCargoCount(expansionBoard, 'barrel') * 0.5
+      + expansionBoard.cartBarrels * (cartRoute[expansionBoard.cartPosition]?.score ?? 0)
+    : 0;
   const startBonus = p.startSlot === 0 ? 1 : 0;
-  return { exchangeRate, victoryPoints, tracks, minResource, productionScore, barrelScore, startBonus, total: productionScore + barrelScore + startBonus };
+  return { exchangeRate, victoryPoints, tracks, minResource, productionScore, barrelScore, expansionBarrelScore, startBonus, total: productionScore + barrelScore + expansionBarrelScore + startBonus };
 }
 function scoreWinner(G: AleState) {
-  const totals = G.players.map(p => scoreBreakdown(p).total), highest = Math.max(...totals);
+  const totals = G.players.map((p, index) => scoreBreakdown(p, G.expansionEnabled ? G.expansion?.players[index] : undefined).total), highest = Math.max(...totals);
   const winners = totals.flatMap((total, index) => total === highest ? [String(index)] : []);
   return winners.length > 1 ? { draw: true, winners, scores: totals } : { winner: winners[0], scores: totals };
 }
@@ -692,4 +1114,5 @@ export const barrelGoals = [
   '你的特权配对旁边必须至少放置3张特权卡。',
   '一共放置了15块僧侣或资源板块在你玩家面板的向阳侧中。',
   '一共放置了15块僧侣或资源板块在你玩家面板的阴凉侧中。',
+  '向任意酒馆交付至少3桶桶装酒（可分散交付）。',
 ];

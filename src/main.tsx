@@ -3,14 +3,15 @@ import { createRoot } from 'react-dom/client';
 import { Client } from 'boardgame.io/client';
 import { SocketIO } from 'boardgame.io/multiplayer';
 import { LobbyClient } from 'boardgame.io/client';
-import { HeavenAle, availableBarrelIds, barrelGoals, barrelTokenPositions, canBuyFrom, canMoveTo, canScore, canSelectShedCell, gardenCells, lowestResources, monkNames, playerBoardPercent, privilegeCardPositions, productionTrackPositions, resourceColors, resourceLabels, resources, scoreBreakdown, scoreChoices, scoringDiscPositions, shedProductionProgress, startSlots, tileBaseCost, validShedSelection, type AleState, type Resource, type ShedChoice, type Tile } from './game';
+import { HeavenAle, availableBarrelIds, barrelGoals, barrelTokenPositions, canBuyFrom, canMoveTo, canScore, canSelectShedCell, canTakeExpansionCargo, gardenCells, lowestResources, monkNames, playerBoardPercent, privilegeCardPositions, productionTrackPositions, resourceColors, resourceLabels, resources, scoreBreakdown, scoreChoices, scoringDiscPositions, shedProductionProgress, startSlots, tileBaseCost, validShedSelection, type AleState, type Resource, type ShedChoice, type Tile } from './game';
 import { chooseBotMove, type BotDifficulty } from './bot';
+import { BUILT_IN_STORAGE_SLOTS, UNLOCKABLE_STORAGE_SLOTS, cartRoute, emptyExpansionStorageSlots, ensureExpansionStorageLayout, validCartLoadChoices, type ExpansionCargo, type ExpansionPlayerBoard, type StorageExtension } from './expansion';
 import './style.css';
 import './garden-layout.css';
 import './readable-text.css';
 
 type AnyClient = ReturnType<typeof Client>;
-type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card'; tile?: Tile; card?: string; pairIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; started: boolean };
+type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; started: boolean };
 const gameName = 'heaven-and-ale';
 const BOT_AFTER_ANIMATION_PAUSE_MS = 500;
 const tokenSpriteColorIndex: Record<string, number> = { black: 0, blue: 1, green: 2, orange: 3, purple: 4, red: 5, yellow: 6 };
@@ -18,9 +19,9 @@ const tokenSpritePosition = (color: string) => `${(tokenSpriteColorIndex[color] 
 const meepleSpriteColorIndex: Record<string, number> = { black: 0, yellow: 1, blue: 2, red: 3 };
 const meepleSpritePosition = (color: string) => `${(meepleSpriteColorIndex[color] ?? 0) * (100 / 3)}% center`;
 const localSaveKey = 'heaven-and-ale-local-session-v1';
-type LocalSave = { version: 1; playerCount: number; botSeats: number[]; botDifficulty: BotDifficulty; playerNames: string[]; state: any; initialState: any; log: any[]; savedAt: number; botNames?: string[] };
-type OnlineRoomSession = { matchID: string; playerID: string; credentials: string; playerName: string; numPlayers: number; host: boolean; botSeats: number[]; botDifficulty?: BotDifficulty; botCredentials: { playerID: string; credentials: string }[] };
-type LobbyRoom = { matchID: string; players: { id: number; name?: string; isConnected?: boolean; data?: Record<string, unknown> }[]; gameover?: unknown; updatedAt?: number };
+type LocalSave = { version: 1; playerCount: number; botSeats: number[]; botDifficulty: BotDifficulty; playerNames: string[]; expansionEnabled?: boolean; state: any; initialState: any; log: any[]; savedAt: number; botNames?: string[] };
+type OnlineRoomSession = { matchID: string; playerID: string; credentials: string; playerName: string; numPlayers: number; host: boolean; botSeats: number[]; botDifficulty?: BotDifficulty; expansionEnabled?: boolean; botCredentials: { playerID: string; credentials: string }[] };
+type LobbyRoom = { matchID: string; players: { id: number; name?: string; isConnected?: boolean; data?: Record<string, unknown> }[]; setupData?: { expansionEnabled?: boolean }; gameover?: unknown; updatedAt?: number };
 type BotSearchUpdate = { playerID: number; iterations: number; thinking: boolean; updatedAt: number };
 const onlineNameKey = 'heaven-and-ale-online-player-name-v1';
 const onlineSessionKey = (matchID: string) => `heaven-and-ale-online-room-${matchID}`;
@@ -51,21 +52,23 @@ function readLocalSave(): LocalSave | null {
     const saved = JSON.parse(raw) as LocalSave;
     if (saved.version !== 1 || !saved.state?.G || !saved.initialState) return null;
     for (const gameState of [saved.state, saved.initialState]) {
+      gameState.G?.expansion?.players?.forEach((board: ExpansionPlayerBoard) => ensureExpansionStorageLayout(board));
       gameState.G?.players?.forEach((player: { name: string }, i: number) => {
         if (/^修道院\s*\d+$/.test(player.name)) player.name = `玩家${i + 1}`;
       });
     }
     saved.playerNames ??= saved.state.G.players.map((player: { name: string }, i: number) => saved.botSeats.includes(i) ? player.name || saved.botNames?.[i] || `机器人${i + 1}` : player.name || `玩家${i + 1}`);
+    saved.expansionEnabled ??= saved.state.G.expansionEnabled === true;
     return saved;
   } catch { return null; }
 }
-function makeLocalGame(bots: number[], names: string[]) {
+function makeLocalGame(bots: number[], names: string[], expansionEnabled = false) {
   const setup = HeavenAle.setup!;
   const botSeatSet = new Set(bots);
   return {
     ...HeavenAle,
     setup: (args: any) => {
-      const G = setup(args);
+      const G = setup(args, { expansionEnabled });
       G.players.forEach((player, i) => {
         player.name = names[i]?.trim() || (botSeatSet.has(i) ? `机器人${i + 1}` : `玩家${i + 1}`);
       });
@@ -80,12 +83,14 @@ function App() {
   const [playerCount, setPlayerCount] = useState(2);
   const [botSeats, setBotSeats] = useState<number[]>([]);
   const [playerNames, setPlayerNames] = useState(['玩家1', '玩家2', '玩家3', '玩家4']);
+  const [localExpansionEnabled, setLocalExpansionEnabled] = useState(false);
   const [botDifficulty, setBotDifficulty] = useState<BotDifficulty>('normal');
   const [activeBotSeats, setActiveBotSeats] = useState<number[]>([]);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(onlineNameKey) || '玩家1');
   const [onlinePlayerCount, setOnlinePlayerCount] = useState(2);
   const [onlineBotCount, setOnlineBotCount] = useState(0);
   const [onlineBotDifficulty, setOnlineBotDifficulty] = useState<BotDifficulty>('normal');
+  const [onlineExpansionEnabled, setOnlineExpansionEnabled] = useState(false);
   const [serverUrl, setServerUrl] = useState(import.meta.env.VITE_GAME_SERVER || 'http://localhost:8000');
   const [roomCode, setRoomCode] = useState(() => new URLSearchParams(window.location.search).get('room') || '');
   const [roomInfo, setRoomInfo] = useState('');
@@ -100,11 +105,11 @@ function App() {
   const [savedLocal, setSavedLocal] = useState<LocalSave | null>(readLocalSave);
   const [localConfig, setLocalConfig] = useState<Omit<LocalSave, 'state' | 'initialState' | 'log' | 'savedAt' | 'version' | 'botNames'> | null>(null);
 
-  const startLocal = (count: number, bots: number[], difficulty: BotDifficulty = 'normal', names: string[] = []) => {
+  const startLocal = (count: number, bots: number[], difficulty: BotDifficulty = 'normal', names: string[] = [], expansionEnabled = false) => {
     const selectedBots = [...new Set(bots)].filter(seat => Number.isInteger(seat) && seat >= 0 && seat < count).sort((a, b) => a - b);
     const selectedNames = Array.from({ length: count }, (_, i) => names[i]?.trim() || (selectedBots.includes(i) ? `机器人${i + 1}` : `玩家${i + 1}`));
-    const config = { playerCount: count, botSeats: selectedBots, botDifficulty: difficulty, playerNames: selectedNames };
-    const c = Client({ game: makeLocalGame(selectedBots, selectedNames), numPlayers: count, debug: false });
+    const config = { playerCount: count, botSeats: selectedBots, botDifficulty: difficulty, playerNames: selectedNames, expansionEnabled };
+    const c = Client({ game: makeLocalGame(selectedBots, selectedNames, expansionEnabled), numPlayers: count, debug: false });
     c.start(); setLocalConfig(config); setClient(c); setScreen('game'); setActiveBotSeats(selectedBots); setBotSeats(selectedBots); setPlayerNames(selectedNames);
     setRoomInfo(selectedBots.length === count ? `机器人对局 · 全部由${difficulty === 'expert' ? '专家' : '普通'}机器人操控` : selectedBots.length ? `本地混合对局 · ${difficulty === 'expert' ? '专家' : '普通'}机器人 ×${selectedBots.length}` : '本地热座 · 轮流操作');
   };
@@ -120,10 +125,10 @@ function App() {
   const resumeLocal = () => {
     const saved = readLocalSave();
     if (!saved) { setSavedLocal(null); return; }
-    const c = Client({ game: makeLocalGame(saved.botSeats, saved.playerNames), numPlayers: saved.playerCount, debug: false });
+    const c = Client({ game: makeLocalGame(saved.botSeats, saved.playerNames, saved.expansionEnabled), numPlayers: saved.playerCount, debug: false });
     c.store.dispatch({ type: 'SYNC', state: saved.state, initialState: saved.initialState, log: saved.log, clientOnly: true });
     c.start();
-    setLocalConfig({ playerCount: saved.playerCount, botSeats: saved.botSeats, botDifficulty: saved.botDifficulty, playerNames: saved.playerNames });
+    setLocalConfig({ playerCount: saved.playerCount, botSeats: saved.botSeats, botDifficulty: saved.botDifficulty, playerNames: saved.playerNames, expansionEnabled: saved.expansionEnabled });
     setClient(c); setActiveBotSeats(saved.botSeats); setPlayerNames(saved.playerNames); setBotDifficulty(saved.botDifficulty); setScreen('game');
     setRoomInfo(saved.botSeats.length === saved.playerCount ? `已恢复 · 全部由${saved.botDifficulty === 'expert' ? '专家' : '普通'}机器人操控` : saved.botSeats.length ? `已恢复本地混合对局 · ${saved.botDifficulty === 'expert' ? '专家' : '普通'}机器人 × ${saved.botSeats.length}` : '已恢复本地热座对局');
   };
@@ -162,7 +167,7 @@ function App() {
     setBusy(true); setRoomInfo('正在创建房间…');
     try {
       const lobby = new LobbyClient({ server: serverUrl });
-      const created = await lobby.createMatch(gameName, { numPlayers: count });
+      const created = await lobby.createMatch(gameName, { numPlayers: count, setupData: { expansionEnabled: onlineExpansionEnabled } });
       const host = await lobby.joinMatch(gameName, created.matchID, { playerID: '0', playerName: name });
       const botCredentials: OnlineRoomSession['botCredentials'] = [];
       for (const seat of botSeats) {
@@ -170,7 +175,7 @@ function App() {
         botCredentials.push({ playerID: String(joinedBot.playerID), credentials: joinedBot.playerCredentials });
       }
       const match = await lobby.getMatch(gameName, created.matchID);
-      await enterWaitingRoom({ matchID: created.matchID, playerID: String(host.playerID), credentials: host.playerCredentials, playerName: name, numPlayers: count, host: true, botSeats, botDifficulty: onlineBotDifficulty, botCredentials }, match);
+      await enterWaitingRoom({ matchID: created.matchID, playerID: String(host.playerID), credentials: host.playerCredentials, playerName: name, numPlayers: count, host: true, botSeats, botDifficulty: onlineBotDifficulty, expansionEnabled: onlineExpansionEnabled, botCredentials }, match);
       void refreshRooms();
     } catch (e) { setRoomInfo(`连接失败：${e instanceof Error ? e.message : '请确认 boardgame.io 服务端已启动。'}`); }
     setBusy(false);
@@ -187,14 +192,14 @@ function App() {
         const match = await lobby.getMatch(gameName, code);
         const botSeats = match.players.filter(player => player.data?.isBot === true).map(player => Number(player.id));
         const botDifficulty = (match.players.find(player => player.data?.isBot === true)?.data?.botDifficulty as BotDifficulty | undefined) || existing.botDifficulty;
-        session = { ...existing, playerName: name, botSeats, botDifficulty };
+        session = { ...existing, playerName: name, botSeats, botDifficulty, expansionEnabled: match.setupData?.expansionEnabled === true };
         await enterWaitingRoom(session, match);
       } else {
         const joined = await lobby.joinMatch(gameName, code, { playerName: name });
         const match = await lobby.getMatch(gameName, code);
         const botSeats = match.players.filter(player => player.data?.isBot === true).map(player => Number(player.id));
         const botDifficulty = match.players.find(player => player.data?.isBot === true)?.data?.botDifficulty as BotDifficulty | undefined;
-        session = { matchID: code, playerID: String(joined.playerID), credentials: joined.playerCredentials, playerName: name, numPlayers: match.players.length, host: false, botSeats, botDifficulty, botCredentials: [] };
+        session = { matchID: code, playerID: String(joined.playerID), credentials: joined.playerCredentials, playerName: name, numPlayers: match.players.length, host: false, botSeats, botDifficulty, expansionEnabled: match.setupData?.expansionEnabled === true, botCredentials: [] };
         await enterWaitingRoom(session, match);
       }
       void refreshRooms();
@@ -339,7 +344,7 @@ function App() {
     const players = roomMatch?.players || [];
     const full = players.length >= onlineRoom.numPlayers && players.slice(0, onlineRoom.numPlayers).every(p => !!p.name);
     const shareUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(onlineRoom.matchID)}`;
-    return <main className="landing waiting-screen"><div className="landing-image" /><header className="topbar"><div className="brand-mark"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><b>天堂与美酒 · 等候室</b></header><section className="waiting-room setup-card"><div className="card-kicker">TABLE {onlineRoom.matchID}</div><h1>{full ? '所有玩家已到齐' : '等待玩家加入'}</h1><p>房主开始游戏前，所有席位需要有人就座。分享此桌的专属链接即可邀请朋友加入。</p><label>你的玩家名称<div className="share-link-row"><input value={playerName} maxLength={18} onChange={e => setSavedName(e.target.value)} /><button className="btn btn-light" disabled={busy} onClick={() => void updateRoomName()}>更新名称</button></div></label><label>房间链接<div className="share-link-row"><input readOnly value={shareUrl} /><button className="btn btn-light" onClick={() => { void navigator.clipboard?.writeText(shareUrl); setRoomInfo('已复制房间链接。'); }}>复制</button></div></label><div className="waiting-seats">{Array.from({ length: onlineRoom.numPlayers }, (_, seat) => { const occupant = players.find(p => Number(p.id) === seat); return <div className={`waiting-seat ${occupant?.name ? 'is-filled' : ''}`} key={seat}><span className="seat-number">{seat + 1}</span><div><b>{occupant?.name || '等待玩家…'}</b><small>{onlineRoom.botSeats.includes(seat) ? '机器人席位' : occupant?.isConnected ? '已连接' : occupant?.name ? '已加入' : '空位'}</small></div>{occupant?.name && <i />}</div>; })}</div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="waiting-actions"><button className="btn btn-outline" onClick={leaveWaitingRoom}>离开房间</button><button className="btn btn-gold" disabled={!full || busy} onClick={startOnlineGame}>{busy ? '连接中…' : full ? '进入对局' : '等待所有玩家加入'}</button></div><small className="waiting-footnote">房间状态每 2.5 秒自动刷新 · 昵称会保存在此设备</small></section></main>;
+    return <main className="landing waiting-screen"><div className="landing-image" /><header className="topbar"><div className="brand-mark"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><b>天堂与美酒 · 等候室</b></header><section className="waiting-room setup-card"><div className="card-kicker">TABLE {onlineRoom.matchID}</div><h1>{full ? '所有玩家已到齐' : '等待玩家加入'}</h1><p>房主开始游戏前，所有席位需要有人就座。分享此桌的专属链接即可邀请朋友加入。</p><div className="expansion-room-badge">{onlineRoom.expansionEnabled ? '扩展规则已启用' : '基础规则'}</div><label>你的玩家名称<div className="share-link-row"><input value={playerName} maxLength={18} onChange={e => setSavedName(e.target.value)} /><button className="btn btn-light" disabled={busy} onClick={() => void updateRoomName()}>更新名称</button></div></label><label>房间链接<div className="share-link-row"><input readOnly value={shareUrl} /><button className="btn btn-light" onClick={() => { void navigator.clipboard?.writeText(shareUrl); setRoomInfo('已复制房间链接。'); }}>复制</button></div></label><div className="waiting-seats">{Array.from({ length: onlineRoom.numPlayers }, (_, seat) => { const occupant = players.find(p => Number(p.id) === seat); return <div className={`waiting-seat ${occupant?.name ? 'is-filled' : ''}`} key={seat}><span className="seat-number">{seat + 1}</span><div><b>{occupant?.name || '等待玩家…'}</b><small>{onlineRoom.botSeats.includes(seat) ? '机器人席位' : occupant?.isConnected ? '已连接' : occupant?.name ? '已加入' : '空位'}</small></div>{occupant?.name && <i />}</div>; })}</div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="waiting-actions"><button className="btn btn-outline" onClick={leaveWaitingRoom}>离开房间</button><button className="btn btn-gold" disabled={!full || busy} onClick={startOnlineGame}>{busy ? '连接中…' : full ? '进入对局' : '等待所有玩家加入'}</button></div><small className="waiting-footnote">房间状态每 2.5 秒自动刷新 · 昵称会保存在此设备</small></section></main>;
   }
   const myOnlineRooms = readOnlineSessions();
   return <main className="landing">
@@ -355,14 +360,15 @@ function App() {
           <div className="card-kicker">QUICK TABLE</div><h2>开始本地对局</h2><p>先选择游戏人数，再为每个席位指定真实玩家或机器人<br />支持混合对局和全机器人观战</p>
           {savedLocal && <button className="btn btn-outline resume-local" onClick={resumeLocal}>继续上次本地对局 · {new Date(savedLocal.savedAt).toLocaleString()}</button>}
           <label>游戏人数<select value={playerCount} onChange={e => { const count = Number(e.target.value); setPlayerCount(count); setBotSeats(current => current.filter(seat => seat < count)); }}><option value={2}>两人游戏</option><option value={3}>三人游戏</option><option value={4}>四人游戏</option></select></label>
+          <label className="expansion-toggle"><input type="checkbox" checked={localExpansionEnabled} onChange={e => setLocalExpansionEnabled(e.target.checked)} /><span><b>启用扩展（测试版）</b><small>包括运输板、推车路线、酒厂交付和棚屋奖励</small></span></label>
           <div className="bot-seat-toolbar"><span>玩家席位</span><div><button type="button" onClick={() => setAllSeatModes(false)}>全部设为真实玩家</button><button type="button" onClick={() => setAllSeatModes(true)}>全部设为机器人</button></div></div>
           <div className="bot-seat-list">{Array.from({ length: playerCount }, (_, seat) => { const isBot = botSeats.includes(seat); return <div className="bot-seat-row" key={seat}>
             <div className="bot-seat-toggle"><input className="bot-seat-name" aria-label={`玩家 ${seat + 1} 名称`} value={playerNames[seat]} maxLength={18} onChange={e => setPlayerNames(current => current.map((name, i) => i === seat ? e.target.value : name))} onBlur={e => { if (!e.target.value.trim()) setPlayerNames(current => current.map((name, i) => i === seat ? `${isBot ? '机器人' : '玩家'}${seat + 1}` : name)); }} /><div className="bot-seat-options" role="group" aria-label={`玩家 ${seat + 1} 类型`}><button type="button" className={!isBot ? 'selected' : ''} aria-pressed={!isBot} onClick={() => setSeatMode(seat, false)}>真实玩家</button><button type="button" className={isBot ? 'selected' : ''} aria-pressed={isBot} onClick={() => setSeatMode(seat, true)}>机器人</button></div></div>
           </div>; })}</div>
           {botSeats.length > 0 && <label>机器人难度<select value={botDifficulty} onChange={e => setBotDifficulty(e.target.value as BotDifficulty)}><option value="normal">普通 · 约 3 秒/步</option><option value="expert">专家 · 约 12 秒/步</option></select></label>}
-          <button className="btn btn-gold" onClick={() => startLocal(playerCount, botSeats, botDifficulty, playerNames)}>开始本地对局 <span>↗</span></button>
+          <button className="btn btn-gold" onClick={() => startLocal(playerCount, botSeats, botDifficulty, playerNames, localExpansionEnabled)}>开始本地对局 <span>↗</span></button>
         </div>
-        <div className="setup-card online-card"><div className="card-kicker">PLAY TOGETHER</div><h2>线上大厅</h2><p>浏览公开等候桌，或创建一桌并邀请朋友加入。</p><label>玩家名称<input value={playerName} onChange={e => setSavedName(e.target.value)} onBlur={() => { if (!playerName.trim()) setSavedName('玩家1'); }} maxLength={18} /></label><label>游戏服务器<input value={serverUrl} onChange={e => setServerUrl(e.target.value)} /></label><div className="online-create-options"><label>总人数<select value={onlinePlayerCount} onChange={e => { const n = Number(e.target.value); setOnlinePlayerCount(n); setOnlineBotCount(current => Math.min(current, n - 1)); }}><option value={2}>2 人</option><option value={3}>3 人</option><option value={4}>4 人</option></select></label><label>机器人席位<select value={onlineBotCount} onChange={e => setOnlineBotCount(Number(e.target.value))}>{Array.from({ length: onlinePlayerCount }, (_, n) => n < onlinePlayerCount ? <option key={n} value={n}>{n === 0 ? '不加入机器人' : `加入 ${n} 个机器人`}</option> : null).slice(0, onlinePlayerCount)}</select></label></div>{onlineBotCount > 0 && <label>机器人难度<select value={onlineBotDifficulty} onChange={e => setOnlineBotDifficulty(e.target.value as BotDifficulty)}><option value="normal">普通</option><option value="expert">专家</option></select></label>}<div className="online-actions"><button className="btn btn-outline" disabled={busy} onClick={createRoom}>创建等候桌</button><div className="join-row"><input placeholder="房间号 / 链接" value={roomCode} onChange={e => { const v = e.target.value; const match = v.match(/[?&]room=([^&]+)/); setRoomCode(match ? decodeURIComponent(match[1]) : v); }} /><button className="btn btn-light" disabled={busy} onClick={() => void joinRoom()}>加入</button></div></div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="lobby-list-heading"><b>可加入的房间</b><button onClick={() => void refreshRooms()}>刷新</button></div><div className="lobby-room-list">{openRooms.filter(room => room.players?.some(p => p.name)).map(room => { const occupied = room.players.filter(p => p.name).length, cap = room.players.length || 0; return <button className="lobby-room" key={room.matchID} disabled={busy || occupied >= cap} onClick={() => { setRoomCode(room.matchID); void joinRoom(room.matchID); }}><span><b>房间 {room.matchID}</b><small>{room.players.filter(p => p.name).map(p => p.name).join('、')}</small></span><em>{occupied}/{cap} 人 · {occupied >= cap ? '已满' : '等待中'}</em></button>; })}{openRooms.filter(room => room.players?.some(p => p.name)).length === 0 && <div className="lobby-empty">当前没有公开等候桌</div>}</div></div>
+        <div className="setup-card online-card"><div className="card-kicker">PLAY TOGETHER</div><h2>线上大厅</h2><p>浏览公开等候桌，或创建一桌并邀请朋友加入。</p><label>玩家名称<input value={playerName} onChange={e => setSavedName(e.target.value)} onBlur={() => { if (!playerName.trim()) setSavedName('玩家1'); }} maxLength={18} /></label><label>游戏服务器<input value={serverUrl} onChange={e => setServerUrl(e.target.value)} /></label><div className="online-create-options"><label>总人数<select value={onlinePlayerCount} onChange={e => { const n = Number(e.target.value); setOnlinePlayerCount(n); setOnlineBotCount(current => Math.min(current, n - 1)); }}><option value={2}>2 人</option><option value={3}>3 人</option><option value={4}>4 人</option></select></label><label>机器人席位<select value={onlineBotCount} onChange={e => setOnlineBotCount(Number(e.target.value))}>{Array.from({ length: onlinePlayerCount }, (_, n) => n < onlinePlayerCount ? <option key={n} value={n}>{n === 0 ? '不加入机器人' : `加入 ${n} 个机器人`}</option> : null).slice(0, onlinePlayerCount)}</select></label></div><label className="expansion-toggle"><input type="checkbox" checked={onlineExpansionEnabled} onChange={e => setOnlineExpansionEnabled(e.target.checked)} /><span><b>启用扩展（测试版）</b><small>包括运输板、推车路线、酒厂交付和棚屋奖励</small></span></label>{onlineBotCount > 0 && <label>机器人难度<select value={onlineBotDifficulty} onChange={e => setOnlineBotDifficulty(e.target.value as BotDifficulty)}><option value="normal">普通</option><option value="expert">专家</option></select></label>}<div className="online-actions"><button className="btn btn-outline" disabled={busy} onClick={createRoom}>创建等候桌</button><div className="join-row"><input placeholder="房间号 / 链接" value={roomCode} onChange={e => { const v = e.target.value; const match = v.match(/[?&]room=([^&]+)/); setRoomCode(match ? decodeURIComponent(match[1]) : v); }} /><button className="btn btn-light" disabled={busy} onClick={() => void joinRoom()}>加入</button></div></div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="lobby-list-heading"><b>可加入的房间</b><button onClick={() => void refreshRooms()}>刷新</button></div><div className="lobby-room-list">{openRooms.filter(room => room.players?.some(p => p.name)).map(room => { const occupied = room.players.filter(p => p.name).length, cap = room.players.length || 0; return <button className="lobby-room" key={room.matchID} disabled={busy || occupied >= cap} onClick={() => { setRoomCode(room.matchID); void joinRoom(room.matchID); }}><span><b>房间 {room.matchID}</b><small>{room.players.filter(p => p.name).map(p => p.name).join('、')}</small></span><em>{occupied}/{cap} 人 · {occupied >= cap ? '已满' : '等待中'}{room.setupData?.expansionEnabled ? ' · 扩展' : ''}</em></button>; })}{openRooms.filter(room => room.players?.some(p => p.name)).length === 0 && <div className="lobby-empty">当前没有公开等候桌</div>}</div></div>
       </div>
       {myOnlineRooms.length > 0 && <section className="my-online-rooms setup-card"><div className="lobby-list-heading"><b>我加入的房间</b><span>保存在此设备</span></div><div className="lobby-room-list">{myOnlineRooms.map(session => { const room = openRooms.find(item => item.matchID === session.matchID); const occupied = room?.players.filter(p => p.name).length ?? 0; return <div className="lobby-room my-room" key={session.matchID}><span><b>{room?.players.find(p => Number(p.id) === Number(session.playerID))?.name || session.playerName} · 房间 {session.matchID}</b><small>{room?.players.filter(p => p.name).map(p => p.name).join('、') || '房间暂不可用'}</small></span><em>{room ? `${occupied}/${room.players.length} 人` : '离线 / 已结束'}</em><button className="btn btn-light" onClick={() => { setRoomCode(session.matchID); void joinRoom(session.matchID); }}>重新进入</button>{session.host && <button className="btn btn-danger" onClick={() => setRoomDeleteTarget(session)}>删除房间</button>}</div>; })}</div></section>}
       {roomDeleteTarget && <div className="modal-backdrop" onClick={() => setRoomDeleteTarget(null)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-room-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setRoomDeleteTarget(null)}>×</button><span className="eyebrow">DELETE TABLE</span><h2 id="delete-room-title">删除房间和全部记录？</h2><p>房间 {roomDeleteTarget.matchID} 将从服务器永久删除，其他玩家也无法再通过链接进入。</p><div className="confirm-actions"><button className="btn btn-outline" disabled={busy} onClick={() => setRoomDeleteTarget(null)}>取消</button><button className="btn btn-danger" disabled={busy} onClick={() => void deleteRoomAndHistory(roomDeleteTarget)}>{busy ? "正在删除…" : "删除房间"}</button></div></div></div>}
@@ -388,6 +394,10 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     if (!isLocal && playerName?.trim() && ownID === currentPlayerIndex && rawG.players[ownID]?.name !== playerName.trim()) moves.setPlayerName?.(playerName.trim());
   }, [state._stateID, client, playerName, isLocal, currentPlayerIndex]);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
+  const [selectedExpansionStoreId, setSelectedExpansionStoreId] = useState<number | null>(null);
+  const previousUnplacedExpansionStores = React.useRef<number[] | null>(null);
+  const lastPlacedExpansionStoreId = React.useRef<number | null>(null);
+  const [selectedExpansionCargoKind, setSelectedExpansionCargoKind] = useState<ExpansionCargo | null>(null);
   const [pieceFlights, setPieceFlights] = useState<PieceFlight[]>([]);
   const [deferredGameAction, setDeferredGameAction] = useState<'undoStep' | 'undoAction' | 'confirmAction' | null>(null);
   const deferredGameActionRef = React.useRef<typeof deferredGameAction>(null);
@@ -396,6 +406,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const [privilegeCardChoice, setPrivilegeCardChoice] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
+  const [showUnstoredCargoPrompt, setShowUnstoredCargoPrompt] = useState(false);
   const [toast, setToast] = useState('');
   const [botSearchStatus, setBotSearchStatus] = useState<{ playerID: number; iterations: number } | null>(null);
   const onBotSearchUpdateRef = React.useRef(onBotSearchUpdate);
@@ -415,12 +426,16 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     }
   }, []);
   const [viewingPlayerIndex, setViewingPlayerIndex] = useState(ownPlayerIndex);
-  useEffect(() => { if (isLocal || ownPlayerIndex === currentPlayerIndex) setViewingPlayerIndex(ownPlayerIndex); }, [currentPlayerIndex, ownPlayerIndex, isLocal]);
+  useEffect(() => {
+    if (botSeats.includes(currentPlayerIndex)) setViewingPlayerIndex(currentPlayerIndex);
+    else if (isLocal || ownPlayerIndex === currentPlayerIndex) setViewingPlayerIndex(ownPlayerIndex);
+  }, [currentPlayerIndex, ownPlayerIndex, isLocal, botSeats]);
   useEffect(() => {
     const logList = document.querySelector<HTMLElement>('.far-right-rail .log-list');
     if (logList) logList.scrollTop = logList.scrollHeight;
   }, [G.log[0]]);
   const me = G.players[viewingPlayerIndex] ?? currentPlayer;
+  const viewingScoring = scoreBreakdown(me, G.expansionEnabled ? G.expansion?.players[viewingPlayerIndex] : undefined);
   const isViewingCurrent = viewingPlayerIndex === currentPlayerIndex;
   const isViewingOwn = viewingPlayerIndex === ownPlayerIndex;
   const action = G.pending;
@@ -431,14 +446,70 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const sharedActiveBotSearch = sharedBotSearches.find(search => search.playerID === activeSeat && Date.now() - search.updatedAt < 12000);
   const activeBotSearch = botSearchStatus?.playerID === activeSeat ? botSearchStatus : sharedActiveBotSearch?.thinking ? sharedActiveBotSearch : undefined;
   const canControlTurn = ownsCurrentTurn && !isBotTurn && !onlineVoteState.passed;
+  const isExpansionStoreSetup = G.phase === 'setup' && G.setupStage === 'expansion-stores' && !!G.expansion;
+  const activeExpansionBoard = G.expansion?.players[activeSeat];
+  const canConfigureExpansionStores = isExpansionStoreSetup && isViewingCurrent && canControlTurn && !G.confirmationKind && !G.expansion?.storeSetupReady?.[activeSeat];
+  useEffect(() => { setSelectedExpansionStoreId(null); previousUnplacedExpansionStores.current = null; lastPlacedExpansionStoreId.current = null; }, [activeSeat, isExpansionStoreSetup]);
+  useEffect(() => {
+    if (!isExpansionStoreSetup || !activeExpansionBoard) {
+      setSelectedExpansionStoreId(null);
+      previousUnplacedExpansionStores.current = null;
+      return;
+    }
+    const unplaced = Array.from({ length: 7 }, (_, index) => index + 1).filter(id => !activeExpansionBoard.hutStoreTiles.includes(id));
+    const previous = previousUnplacedExpansionStores.current;
+    const returnedIds = previous ? unplaced.filter(id => !previous.includes(id)) : [];
+    const returnedByUndo = returnedIds.includes(lastPlacedExpansionStoreId.current ?? -1) ? lastPlacedExpansionStoreId.current! : returnedIds[0];
+    if (returnedIds.length) lastPlacedExpansionStoreId.current = null;
+    setSelectedExpansionStoreId(current => returnedByUndo ?? (current !== null && unplaced.includes(current) ? current : unplaced[0] ?? null));
+    previousUnplacedExpansionStores.current = unplaced;
+  }, [activeSeat, isExpansionStoreSetup, activeExpansionBoard?.hutStoreTiles.join(',')]);
+  const expansionStorePrompt = G.expansion?.storePrompts?.[0];
+  const expansionStoreCargoChoices: { cargo: ExpansionCargo[]; destinations: number[]; label: string }[] = (() => {
+    const board = expansionStorePrompt ? G.expansion?.players[expansionStorePrompt.playerIndex] : null;
+    if (!board || !G.expansion) return [];
+    const regularSlots = emptyExpansionStorageSlots(board), tempAvailable = !board.temporaryStorage && activePlayer.coins >= 4;
+    const hasBarrel = G.expansion.barrelSupply > 0, hasStraw = G.expansion.strawSupply > 0;
+    const choices: { cargo: ExpansionCargo[]; destinations: number[]; label: string }[] = [];
+    if (hasBarrel && regularSlots[0] !== undefined) choices.push({ cargo: ['barrel'], destinations: [regularSlots[0]], label: '桶装酒 · 常规格' });
+    if (hasBarrel && tempAvailable) choices.push({ cargo: ['barrel'], destinations: [-1], label: '桶装酒 · 临时格（4钱币）' });
+    if (hasStraw && regularSlots[0] !== undefined) choices.push({ cargo: ['straw'], destinations: [regularSlots[0]], label: '干草 · 常规格' });
+    if (hasStraw && tempAvailable) choices.push({ cargo: ['straw'], destinations: [-1], label: '干草 · 临时格（4钱币）' });
+    if (hasBarrel && hasStraw && regularSlots.length >= 2) choices.push({ cargo: ['barrel', 'straw'], destinations: [regularSlots[0], regularSlots[1]], label: '桶装酒 + 干草 · 常规格' });
+    if (hasBarrel && hasStraw && tempAvailable && regularSlots[0] !== undefined) {
+      choices.push({ cargo: ['barrel', 'straw'], destinations: [-1, regularSlots[0]], label: '桶装酒临时格、干草常规格' });
+      choices.push({ cargo: ['barrel', 'straw'], destinations: [regularSlots[0], -1], label: '桶装酒常规格、干草临时格' });
+    }
+    return choices;
+  })();
+  const expansionStoreEffects: Record<number, string> = {
+    1: '推车骰子每次移动永久 +2 格。', 2: '推车骰子每次移动永久 +3 格。',
+    3: '选择覆盖一个尚未升级的酒馆计分格；之后每桶得 5 分。', 4: '选择覆盖一个尚未升级的酒馆计分格；之后每桶得 6 分。',
+    5: '立即推动推车 4 格，不加骰子奖励。', 6: '立即推动推车 6 格，不加骰子奖励。',
+    7: '从供应堆拿 1 桶桶装酒和/或 1 捆干草，可放入常规格；也可放临时格，每个支付 4 钱币。',
+  };
+  const expansionHutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
   const humanPlayerSeats = G.players.map((_, index) => index).filter(index => !botSeats.includes(index));
   const canMove = canControlTurn && !action && !G.confirmationKind && !G.privilegePrompts.length && !currentPlayer.retired && G.phase === 'play';
   const trackMove = (index: number) => { if (!canMove || !canMoveTo(G, currentPlayer, index)) return 0; const moveTime = animateMeepleMove(currentPlayerIndex, index); const barrelTime = G.track[index]?.type === 'barrel' ? animateBarrels(currentPlayerIndex) : 0; moves.moveTo(index); setSelectedTileId(null); return Math.max(moveTime, barrelTime); };
   const currentActionSpace = action ? G.track[action.space] : null;
+  const expansionCargoPile = action && G.expansion ? G.expansion.cargoByTrackSpace[action.space] ?? [] : [];
+  const hasStorableCargoRemaining = !!activeExpansionBoard && expansionCargoPile.length > 0 && (emptyExpansionStorageSlots(activeExpansionBoard).length > 0 || (!activeExpansionBoard.temporaryStorage && activePlayer.coins >= 4));
+  const remainingCargoReminder = [
+    expansionCargoPile.filter(kind => kind === 'barrel').length ? `桶装酒 ${expansionCargoPile.filter(kind => kind === 'barrel').length} 桶` : '',
+    expansionCargoPile.filter(kind => kind === 'straw').length ? `干草 ${expansionCargoPile.filter(kind => kind === 'straw').length} 捆` : '',
+  ].filter(Boolean).join('、');
+  useEffect(() => {
+    if (action?.baseDone && !action.cargoDone && expansionCargoPile.length) {
+      if (!selectedExpansionCargoKind || !expansionCargoPile.includes(selectedExpansionCargoKind)) setSelectedExpansionCargoKind(expansionCargoPile[0] ?? null);
+    } else if (selectedExpansionCargoKind) setSelectedExpansionCargoKind(null);
+  }, [selectedExpansionCargoKind, action?.space, action?.baseDone, action?.cargoDone, state._stateID]);
+  const canTakeCargoHere = !!action && canTakeExpansionCargo(G, activePlayer, action.space);
+  const canUseCartHere = !!action && !!G.expansion && G.expansion.cartDieSpace === action.space && action.cartDone === false;
   const activeShedChoice = G.shedChoices[0];
   const market = action?.type === 'resource' ? G.resources[currentActionSpace?.sourceIndex ?? -1] : action?.type === 'monk' ? G.monks[currentActionSpace?.sourceIndex ?? -1] : [];
   const selectedTile = market?.find(tile => tile.id === selectedTileId) ?? market?.[0];
-  const canPlace = canControlTurn && isViewingCurrent && !!action && ['resource', 'monk'].includes(action.type) && !!selectedTile;
+  const canPlace = canControlTurn && isViewingCurrent && !expansionStorePrompt && !!action && !action.baseDone && ['resource', 'monk'].includes(action.type) && !!selectedTile;
   const executeGameAction = (kind: 'undoStep' | 'undoAction' | 'confirmAction') => {
     if (kind === 'undoStep') moves.undoStep();
     else if (kind === 'undoAction') moves.undoAction();
@@ -529,6 +600,132 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       if (brewerFrom && brewerTo && old.brewer !== now.brewer) startPieceFlightFromRects('brewer-marker', brewerFrom, brewerTo, { playerIndex, playerColor: G.players[playerIndex].color });
     }
   }, [state._stateID, viewingPlayerIndex]);
+  const expansionSnapshotRef = React.useRef<any>(null);
+  useLayoutEffect(() => {
+    const expansion = G.expansion;
+    const current = expansion ? {
+      dieSpace: expansion.cartDieSpace,
+      dieValue: expansion.cartDieValue,
+      cargoByTrackSpace: expansion.cargoByTrackSpace.map((pile: ExpansionCargo[]) => [...pile]),
+      pending: G.pending ? { space: G.pending.space, cargoTaken: G.pending.cargoTaken ?? 0 } : null,
+      players: expansion.players.map((board: ExpansionPlayerBoard, playerIndex: number) => ({
+        coins: G.players[playerIndex]?.coins ?? 0,
+        storage: [...board.storage], temporaryStorage: board.temporaryStorage,
+        cartPosition: board.cartPosition, cartBarrels: board.cartBarrels,
+        breweryDeliveries: [...board.breweryDeliveries], deliveredBarrels: board.deliveredBarrels,
+      })),
+    } : null;
+    const previous = expansionSnapshotRef.current;
+    expansionSnapshotRef.current = current;
+    if (!previous || !current || !G.expansionEnabled) return;
+
+    const centeredRect = (rect: DOMRect, width: number, height = width) => ({
+      left: rect.left + (rect.width - width) / 2,
+      top: rect.top + (rect.height - height) / 2,
+      width, height,
+    });
+    const trackRect = (index: number, size = 28) => {
+      const element = document.querySelector<HTMLElement>(`[data-track-index="${index}"]`);
+      const rect = element?.getBoundingClientRect();
+      return rect && rect.width > 1 ? centeredRect(rect, Math.min(size, rect.width * .55)) : null;
+    };
+    const routeRect = (playerIndex: number, routeIndex: number, size = 38) => {
+      const board = document.querySelector<HTMLElement>(`.expansion-transport-board[data-transport-player-index="${playerIndex}"]`);
+      const location = cartRoute[routeIndex], rect = board?.getBoundingClientRect();
+      if (!rect || !location) return null;
+      const diameter = Math.min(size, rect.width * .12);
+      return { left: rect.left + rect.width * location.left / 100 - diameter / 2, top: rect.top + rect.height * location.top / 100 - diameter / 2, width: diameter, height: diameter };
+    };
+    const trackCargoRect = (spaceIndex: number, kind: ExpansionCargo) => {
+      const selector = kind === 'barrel'
+        ? `[data-track-index="${spaceIndex}"] .expansion-track-cargo-token.barrel`
+        : `[data-track-index="${spaceIndex}"] .expansion-cargo-token.straw-icon`;
+      const rect = document.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+      if (rect && rect.width > 1 && rect.height > 1) {
+        const width = rect.width / .75, height = rect.height / .75;
+        return { left: rect.left + (rect.width - width) / 2, top: rect.top + (rect.height - height) / 2, width, height };
+      }
+      return trackRect(spaceIndex, kind === 'barrel' ? 27 : 33);
+    };
+    const storageRect = (playerIndex: number, slot: number, temporary = false, size = Number.POSITIVE_INFINITY) => {
+      const selector = temporary
+        ? `.expansion-transport-board[data-transport-player-index="${playerIndex}"] [data-temporary-storage-marker]`
+        : `.expansion-transport-board[data-transport-player-index="${playerIndex}"] [data-expansion-storage-index="${slot}"]`;
+      const rect = document.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+      return rect && rect.width > 1 ? centeredRect(rect, Math.min(size, rect.width), Math.min(size, rect.height)) : null;
+    };
+
+    if (previous.dieSpace !== current.dieSpace) {
+      const from = trackRect(previous.dieSpace, 26), to = trackRect(current.dieSpace, 26);
+      if (from && to) startPieceFlightFromRects('die', from, to, { dieValue: current.dieValue, targetTrackIndex: current.dieSpace });
+    }
+
+    for (let playerIndex = 0; playerIndex < current.players.length; playerIndex++) {
+      if (playerIndex !== viewingPlayerIndex) continue;
+      const old = previous.players[playerIndex], now = current.players[playerIndex];
+      if (!old || !now) continue;
+
+      const coinsSpent = (old.coins ?? 0) - (now.coins ?? 0);
+      if (!old.temporaryStorage && now.temporaryStorage && coinsSpent >= 4) {
+        const target = document.querySelector<HTMLElement>(`.expansion-transport-board[data-transport-player-index="${playerIndex}"] [data-temporary-storage-marker]`);
+        if (target) startCoinFlights([{ element: moneyIcon(playerIndex), amount: 4 }], target);
+      }
+
+      const takenDelta = (current.pending?.cargoTaken ?? 0) - (previous.pending?.cargoTaken ?? 0);
+      if (takenDelta > 0 && current.pending) {
+        const spaceIndex = current.pending.space;
+        for (const kind of ['barrel', 'straw'] as const) {
+          const oldCount = previous.cargoByTrackSpace[spaceIndex]?.filter((item: ExpansionCargo) => item === kind).length ?? 0;
+          const newCount = current.cargoByTrackSpace[spaceIndex]?.filter((item: ExpansionCargo) => item === kind).length ?? 0;
+          if (oldCount <= newCount) continue;
+          const source = trackCargoRect(spaceIndex, kind);
+          const targetSlot = now.storage.findIndex((item: ExpansionCargo | null, index: number) => item === kind && old.storage[index] !== kind);
+          const toTemporary = now.temporaryStorage === kind && old.temporaryStorage !== kind;
+          const target = targetSlot >= 0 ? storageRect(playerIndex, targetSlot) : toTemporary ? storageRect(playerIndex, -1, true) : null;
+          if (source && target) startPieceFlightFromRects('expansion-cargo', source, target, { cargoKind: kind, playerIndex, targetStorageIndex: targetSlot >= 0 ? targetSlot : undefined, targetTemporaryStorage: toTemporary });
+        }
+      }
+
+      const loadedBarrels = Math.max(0, now.cartBarrels - old.cartBarrels);
+      if (loadedBarrels > 0) {
+        const cartTarget = routeRect(playerIndex, now.cartPosition, 38);
+        let animated = 0;
+        old.storage.forEach((item: ExpansionCargo | null, index: number) => {
+          if (item !== 'barrel' || now.storage[index] !== null || !cartTarget || animated >= loadedBarrels) return;
+          const source = storageRect(playerIndex, index);
+          if (source) startPieceFlightFromRects('expansion-cargo', source, cartTarget, { cargoKind: 'barrel', playerIndex, sourceStorageIndex: index });
+          animated++;
+        });
+        if (old.temporaryStorage === 'barrel' && now.temporaryStorage !== 'barrel' && cartTarget && animated < loadedBarrels) {
+          const source = storageRect(playerIndex, -1, true);
+          if (source) startPieceFlightFromRects('expansion-cargo', source, cartTarget, { cargoKind: 'barrel', playerIndex, sourceTemporaryStorage: true });
+        }
+        let strawAnimated = 0;
+        old.storage.forEach((item: ExpansionCargo | null, index: number) => {
+          if (item !== 'straw' || now.storage[index] !== null || strawAnimated >= loadedBarrels) return;
+          const source = storageRect(playerIndex, index), gateTarget = routeRect(playerIndex, 0, 28);
+          if (source && gateTarget) startPieceFlightFromRects('expansion-cargo', source, gateTarget, { cargoKind: 'straw', playerIndex, sourceStorageIndex: index });
+          strawAnimated++;
+        });
+        if (old.temporaryStorage === 'straw' && now.temporaryStorage !== 'straw' && strawAnimated < loadedBarrels) {
+          const source = storageRect(playerIndex, -1, true), gateTarget = routeRect(playerIndex, 0, 28);
+          if (source && gateTarget) startPieceFlightFromRects('expansion-cargo', source, gateTarget, { cargoKind: 'straw', playerIndex, sourceTemporaryStorage: true });
+        }
+      }
+
+      if (old.cartPosition !== now.cartPosition) {
+        const from = routeRect(playerIndex, old.cartPosition, 38), to = routeRect(playerIndex, now.cartPosition, 38);
+        if (from && to) startPieceFlightFromRects('cart', from, to, { playerIndex, cargoCount: now.cartBarrels, targetRouteIndex: now.cartPosition });
+      }
+
+      now.breweryDeliveries.forEach((count: number, breweryIndex: number) => {
+        const delivered = count - (old.breweryDeliveries[breweryIndex] ?? 0);
+        if (delivered <= 0) return;
+        const from = routeRect(playerIndex, old.cartPosition, 28), to = routeRect(playerIndex, 9 + breweryIndex, 30);
+        if (from && to) for (let barrel = 0; barrel < delivered; barrel++) startPieceFlightFromRects('expansion-cargo', from, to, { cargoKind: 'barrel', playerIndex, targetRouteIndex: 9 + breweryIndex, delayMs: barrel * 90 });
+      });
+    }
+  }, [state._stateID, viewingPlayerIndex]);
   const startCoinFlights = (origins: { element: HTMLElement | null; amount: number }[], target: HTMLElement | null) => {
     if (!target) return 0;
     const targetRect = target.getBoundingClientRect();
@@ -563,6 +760,75 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const flightWidth = flightHeight * aspect;
     const from = { left: sourceRect.left + (sourceRect.width - flightWidth) / 2, top: sourceRect.top + (sourceRect.height - flightHeight) / 2, width: flightWidth, height: flightHeight };
     return startPieceFlightFromRects('privilege-card', from, target, { card, pairIndex, playerIndex });
+  };
+  const animateStorePlacement = (playerIndex: number, storeId: number, targetIndex: number) => {
+    const board = G.expansion?.players[playerIndex], hutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+    const sourceSlot = board?.hutStoreTiles.indexOf(storeId) ?? -1;
+    const sourceIndex = sourceSlot >= 0 ? hutIndexes[sourceSlot] : undefined;
+    const sourceBoardCell = sourceIndex === undefined ? null : document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${playerIndex}"] [data-garden-index="${sourceIndex}"] .expansion-hut-store`);
+    const source = sourceBoardCell || document.querySelector<HTMLElement>(`.expansion-store-tile[data-expansion-store-id="${storeId}"] img`);
+    const boardSelector = `.garden-board[data-player-board-index="${playerIndex}"]`;
+    const targetCell = document.querySelector<HTMLElement>(`${boardSelector} [data-garden-index="${targetIndex}"]`);
+    const targetRect = targetCell?.getBoundingClientRect();
+    if (!targetRect) return 0;
+    const width = targetRect.width * .8, height = targetRect.height * .8;
+    const target = { left: targetRect.left + (targetRect.width - width) / 2, top: targetRect.top + (targetRect.height - height) / 2, width, height };
+    let duration = startPieceFlight('store-card', source, target, { storeId, sourceIndex, targetIndex, playerIndex });
+    const targetSlot = hutIndexes.indexOf(targetIndex), displacedStoreId = board?.hutStoreTiles[targetSlot] ?? null;
+    if (sourceIndex !== undefined && displacedStoreId !== null && sourceIndex !== targetIndex) {
+      const reverseSource = document.querySelector<HTMLElement>(`${boardSelector} [data-garden-index="${targetIndex}"] .expansion-hut-store`);
+      const reverseTargetCell = document.querySelector<HTMLElement>(`${boardSelector} [data-garden-index="${sourceIndex}"]`), reverseRect = reverseTargetCell?.getBoundingClientRect();
+      if (reverseRect) duration = Math.max(duration, startPieceFlight('store-card', reverseSource, { left: reverseRect.left + (reverseRect.width - width) / 2, top: reverseRect.top + (reverseRect.height - height) / 2, width, height }, { storeId: displacedStoreId, sourceIndex: targetIndex, targetIndex: sourceIndex, playerIndex }));
+    }
+    return duration;
+  };
+  const randomizeRemainingExpansionStores = () => {
+    const board = G.expansion?.players[activeSeat];
+    if (!canConfigureExpansionStores || !board) return;
+    const hutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+    const emptySlots = board.hutStoreTiles.flatMap((id, slot) => id === null ? [slot] : []);
+    const tileIds = Array.from({ length: 7 }, (_, index) => index + 1).filter(id => !board.hutStoreTiles.includes(id));
+    if (!emptySlots.length || emptySlots.length !== tileIds.length) return;
+    for (let index = tileIds.length - 1; index > 0; index--) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [tileIds[index], tileIds[swapIndex]] = [tileIds[swapIndex], tileIds[index]];
+    }
+    lastPlacedExpansionStoreId.current = null;
+    tileIds.forEach((tileId, index) => animateStorePlacement(activeSeat, tileId, hutIndexes[emptySlots[index]]));
+    moves.placeRemainingExpansionStoreTiles(tileIds);
+    setSelectedExpansionStoreId(null);
+  };
+  const placeExpansionStoreTarget = (hutIndex: number, clickedStoreId?: number) => {
+    const board = G.expansion?.players[activeSeat], selected = selectedExpansionStoreId;
+    if (!canConfigureExpansionStores || !board) return;
+    if (!selected) { if (clickedStoreId) setSelectedExpansionStoreId(clickedStoreId); return; }
+    if (clickedStoreId === selected) { setSelectedExpansionStoreId(null); return; }
+    const hutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+    const targetSlot = hutIndexes.indexOf(hutIndex);
+    if (targetSlot < 0) return;
+    const wasUnplaced = !board.hutStoreTiles.includes(selected);
+    const targetWasEmpty = board.hutStoreTiles[targetSlot] === null;
+    if (!wasUnplaced) {
+      animateStorePlacement(activeSeat, selected, hutIndex);
+      moves.assignExpansionStoreTile(hutIndex, selected);
+      setSelectedExpansionStoreId(null);
+      return;
+    }
+    lastPlacedExpansionStoreId.current = selected;
+
+    const remainingIds = Array.from({ length: 7 }, (_, index) => index + 1).filter(id => !board.hutStoreTiles.includes(id) && id !== selected);
+    if (clickedStoreId && !remainingIds.includes(clickedStoreId)) remainingIds.push(clickedStoreId);
+    const remainingEmptyHuts = board.hutStoreTiles.flatMap((id, slot) => id === null && slot !== targetSlot ? [hutIndexes[slot]] : []);
+    if (targetWasEmpty && remainingIds.length === 1 && remainingEmptyHuts.length === 1) {
+      animateStorePlacement(activeSeat, selected, hutIndex);
+      animateStorePlacement(activeSeat, remainingIds[0], remainingEmptyHuts[0]);
+      moves.assignExpansionStoreTile(hutIndex, selected, remainingEmptyHuts[0], remainingIds[0]);
+      setSelectedExpansionStoreId(null);
+      return;
+    }
+    animateStorePlacement(activeSeat, selected, hutIndex);
+    moves.assignExpansionStoreTile(hutIndex, selected);
+    setSelectedExpansionStoreId(remainingIds[0] ?? null);
   };
   const startTileFlight = (tile: Tile, index: number) => {
     const findTileElement = (selector: string, id: string) => [...document.querySelectorAll<HTMLElement>(selector)].find(element => element.dataset.tileId === id || element.dataset.shopTileId === id);
@@ -614,13 +880,13 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const source = document.querySelector<HTMLElement>(`.production-marker[data-resource-key="${resource}"]`);
     return startCoinFlights([{ element: source, amount }], moneyIcon(playerIndex));
   };
-  const startScoreFlight = (scoreIndex: number, sourceScoreIndex: number) => {
+  const startScoreFlight = (scoreIndex: number, sourceScoreIndex: number, playerIndex: number) => {
     const source = [...document.querySelectorAll<HTMLElement>('[data-score-source-index]')].find(element => element.dataset.scoreSourceIndex === String(sourceScoreIndex));
-    const board = document.querySelector<HTMLElement>('.right-rail .garden-board')?.getBoundingClientRect();
+    const board = document.querySelector<HTMLElement>(`.right-rail .garden-board[data-player-board-index="${playerIndex}"]`)?.getBoundingClientRect();
     const point = scoringDiscPositions[scoreIndex];
     const targetSize = board ? board.width * .05 : 0;
     const target = board && point ? { left: board.left + board.width * point.left / 100 - targetSize / 2, top: board.top + board.height * point.top / 100 - targetSize / 2, width: targetSize, height: targetSize } : null;
-    return startPieceFlight('disc', source || null, target, { scoreIndex });
+    return startPieceFlight('disc', source || null, target, { scoreIndex, playerIndex });
   };
   const animateBarrels = (playerIndex: number) => {
     const player = G.players[playerIndex];
@@ -651,11 +917,12 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   };
   const animateBotMove = (decision: { name: string; args: unknown[] }, current: any) => {
     const playerIndex = Number(current.ctx.currentPlayer), player = current.G.players[playerIndex];
+    if (isLocal && botSeats.includes(playerIndex) && current.G.expansionEnabled && ['takeExpansionCargo', 'chooseExpansionCartLoad', 'useExpansionCart', 'resolveExpansionStore'].includes(decision.name)) setViewingPlayerIndex(playerIndex);
     if (decision.name === 'buyTile') return animateBotTilePlacement(String(decision.args[0]), Number(decision.args[1]));
     if (decision.name === 'takeScore') {
       const category = String(decision.args[0]), option = String(decision.args[1]);
       const index = category === 'A' ? 0 : category === 'C' ? 1 + resources.indexOf(option as Resource) : 6 + monkNames.indexOf(option);
-      const discTime = startScoreFlight(index, current.G.track[current.G.pending?.space ?? -1]?.sourceIndex ?? -1);
+      const discTime = startScoreFlight(index, current.G.track[current.G.pending?.space ?? -1]?.sourceIndex ?? -1, playerIndex);
       const coinTime = animateActivationCoins(player, playerIndex, scoreActivationCells(player, category, option));
       return Math.max(discTime, coinTime);
     }
@@ -684,10 +951,18 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       const barrelTime = current.G.track[trackIndex]?.type === 'barrel' ? animateBarrels(playerIndex) : 0;
       return Math.max(moveTime, barrelTime);
     }
+    if (decision.name === 'takeExpansionCargo' || decision.name === 'chooseExpansionCartLoad' || decision.name === 'useExpansionCart') return 1120;
+    if (decision.name === 'resolveExpansionStore' && [5, 6].includes(Number(current.G.expansion?.storePrompts?.[0]?.tileId))) return 1120;
+    if (decision.name === 'confirmAction' && current.G.confirmationKind !== 'free' && current.G.expansionEnabled && current.G.expansion) {
+      const expansion = current.G.expansion;
+      const playerStoppedOnDie = player.position === expansion.cartDieSpace;
+      const everybodyPassed = current.G.players.every((p: any) => p.retired || p.position >= expansion.cartDieSpace);
+      if (playerStoppedOnDie || everybodyPassed) return 1120;
+    }
     return 0;
   };
   const placeTile = (index: number) => {
-    if (!canPlace || !selectedTile) return;
+    if (!canPlace || !selectedTile || action?.baseDone) return;
     animatePurchase(selectedTile, index, currentPlayerIndex, currentActionSpace?.sourceIndex);
     moves.buyTile(selectedTile.id, index); setSelectedTileId(null);
   };
@@ -737,18 +1012,18 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     if (!canControlTurn || !scoreCategories.includes(category) || !scoreChoices(activePlayer, category).some(value => String(value) === choice)) return;
     const option = category === 'A' ? Number(choice) : choice;
     const scoreIndex = category === 'A' ? 0 : category === 'C' ? 1 + resources.indexOf(String(option) as Resource) : 6 + monkNames.indexOf(String(option));
-    startScoreFlight(scoreIndex, currentScoreSpace?.sourceIndex ?? -1);
+    startScoreFlight(scoreIndex, currentScoreSpace?.sourceIndex ?? -1, currentPlayerIndex);
     animateActivationCoins(activePlayer, currentPlayerIndex, scoreActivationCells(activePlayer, category, String(option)));
     moves.takeScore(category, option);
   };
   const submitScore = () => selectedScoreOption && placeScoreChoice(selectedScoreCategory, selectedScoreOption);
-  const scoreTargetIndices = action?.type === 'score' && isViewingCurrent && canControlTurn ? [
+  const scoreTargetIndices = action?.type === 'score' && !action.baseDone && isViewingCurrent && canControlTurn ? [
     ...(scoreCategories.includes('A') && scoreChoices(activePlayer, 'A').length ? [0] : []),
     ...(scoreCategories.includes('C') ? resources.flatMap((resource, i) => scoreChoices(activePlayer, 'C').some(value => String(value) === resource) ? [i + 1] : []) : []),
     ...(scoreCategories.includes('B') ? monkNames.flatMap((monk, i) => scoreChoices(activePlayer, 'B').some(value => String(value) === monk) ? [i + 6] : []) : []),
   ] : [];
   const placeScoreFromBoard = (index: number) => {
-    if (!canControlTurn) return;
+    if (!canControlTurn || !action || action.baseDone || action.type !== 'score') return;
     if (index === 0) {
       const choices = scoreChoices(activePlayer, 'A').map(String);
       const choice = selectedScoreCategory === 'A' && selectedScoreOption && choices.includes(selectedScoreOption) ? selectedScoreOption : choices[0];
@@ -764,45 +1039,55 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const actionOrder = Array.from({ length: playerCount }, (_, offset) => (orderStart + turnDirection * offset + playerCount * 2) % playerCount);
   const ownOrderPosition = actionOrder.indexOf(ownPlayerIndex);
   const rosterOrder = ownOrderPosition < 0 ? actionOrder : [...actionOrder.slice(ownOrderPosition), ...actionOrder.slice(0, ownOrderPosition)];
-  return <main className="table-screen">
+  return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''}`}>
     {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />}
     {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />)}
-    {pieceFlights.map(flight => <div key={flight.id} className={`tile-flight ${flight.started ? 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, backgroundPosition: flight.kind === 'resource-marker' ? `${resources.indexOf(flight.resourceKey!) * 25}% center` : flight.kind === 'brewer-marker' ? tokenSpritePosition(flight.playerColor || 'green') : flight.kind === 'meeple' ? meepleSpritePosition(flight.playerColor || 'black') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <img src={`/Images/barrel_goal_${flight.barrelId}.png`} alt="" /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : null}</div>)}
-    <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div><div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div><button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{!isLocal && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number((client as any).playerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
+    {pieceFlights.map(flight => <div key={flight.id} className={`tile-flight ${flight.started ? 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, backgroundPosition: flight.kind === 'resource-marker' ? `${resources.indexOf(flight.resourceKey!) * 25}% center` : flight.kind === 'brewer-marker' ? tokenSpritePosition(flight.playerColor || 'green') : flight.kind === 'meeple' ? meepleSpritePosition(flight.playerColor || 'black') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <BarrelGoalArt id={flight.barrelId || 0} /> : flight.kind === 'expansion-cargo' ? flight.cargoKind === 'barrel' ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="" /> : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="" /> : flight.kind === 'cart' ? <span className="transport-cart-marker flight-cart-marker">{(flight.cargoCount ?? 0) > 0 && <span className="cart-cargo-stack">{Array.from({ length: flight.cargoCount ?? 0 }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="" /></span> : flight.kind === 'die' ? <DiceFace value={flight.dieValue ?? 1} /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : flight.kind === 'store-card' ? <img src={`/Images/store_${flight.storeId}.png`} alt="" /> : null}</div>)}
+    <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div>{G.expansionEnabled && <span className="expansion-room-badge">扩展对局</span>}<div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div><button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{!isLocal && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number((client as any).playerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
     {!isLocal && roomCode && onlineVoteState.votes.length > 0 && <div className="abandon-vote-progress"><b>放弃游戏投票 · {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</b><span>{humanPlayerSeats.map(seat => `${G.players[seat].name}：${onlineVoteState.votes.includes(seat) ? '已投票' : '未投票'}`).join('　')}</span></div>}
     {!isLocal && onlineVoteState.passed && <div className="abandon-vote-banner"><b>所有真人玩家已同意，正在删除本局和记录。</b>{isRoomHost && <button className="btn btn-gold" onClick={onLeaveAbandoned}>重试删除</button>}</div>}
-    {G.phase === 'finished' && <div className="game-over-banner"><b>{gameover?.draw ? '平分，共享胜利：' : '获胜者：'}{winnerIds.map(id => G.players[Number(id)]?.name).filter(Boolean).join('、')}</b><span> · </span>{G.players.map((p, i) => <span key={i}>{p.name}：{gameover?.scores?.[i] ?? scoreBreakdown(p).total} 分{i < G.players.length - 1 ? '　' : ''}</span>)}</div>}
+    {G.phase === 'finished' && <div className="game-over-banner"><b>{gameover?.draw ? '平分，共享胜利：' : '获胜者：'}{winnerIds.map(id => G.players[Number(id)]?.name).filter(Boolean).join('、')}</b><span> · </span>{G.players.map((p, i) => <span key={i}>{p.name}：{gameover?.scores?.[i] ?? scoreBreakdown(p, G.expansionEnabled ? G.expansion?.players[i] : undefined).total} 分{i < G.players.length - 1 ? '　' : ''}</span>)}</div>}
     <div className={`game-layout ${isBotTurn ? 'bot-thinking' : ''}`}>
       <section className="center-play"><div className="board-heading"><div><h2>主游戏版图</h2></div>{isBotTurn ? <span className="bot-thinking-pill"><i className="bot-thinking-dot" />{G.players[activeSeat]?.name} 正在思考 · 搜索 {activeBotSearch?.iterations ?? 0} 次</span> : <span className="board-tip"></span>}</div>
         <div className="main-board-wrap"><img src="/Images/main_board_clear.jpg" alt="天堂与美酒主版图" className="main-board-art" /><div className="track-overlay">
           {G.track.map((space, i) => {
-            const occupants = G.players.filter(p => p.position === i); const here = canMove && i > currentPlayer.position; const stock = space.type === 'resource' ? G.resources[space.sourceIndex ?? -1] : space.type === 'monk' ? G.monks[space.sourceIndex ?? -1] : []; const supplySpace = space.type === 'resource' || space.type === 'monk'; const good = here && canMoveTo(G, currentPlayer, i); const x = (space.x / 1904) * 100, y = (space.y / 1176) * 100; return <button key={i} data-track-index={i} disabled={!good} onClick={() => trackMove(i)} style={{ left: `${x}%`, top: `${y}%` }} className={`track-space ${space.type} ${good ? 'available-space' : ''} ${currentPlayer.position === i ? 'current-space' : ''}`} title={`${i + 1} · ${space.label}`}>
+            const occupants = G.players.filter(p => p.position === i); const here = canMove && i > currentPlayer.position; const stock = space.type === 'resource' ? G.resources[space.sourceIndex ?? -1] : space.type === 'monk' ? G.monks[space.sourceIndex ?? -1] : []; const supplySpace = space.type === 'resource' || space.type === 'monk'; const good = here && canMoveTo(G, currentPlayer, i); const cargo = G.expansionEnabled ? G.expansion?.cargoByTrackSpace[i] ?? [] : []; const dieFlyingTo = pieceFlights.some(flight => flight.kind === 'die' && flight.targetTrackIndex === i); const dieHere = G.expansionEnabled && G.expansion?.cartDieSpace === i && !dieFlyingTo; const hasExpansionIndicators = G.expansionEnabled && (cargo.length > 0 || dieHere); const x = (space.x / 1904) * 100, y = (space.y / 1176) * 100; return <button key={i} data-track-index={i} disabled={!good} onClick={() => trackMove(i)} style={{ left: `${x}%`, top: `${y}%` }} className={`track-space ${space.type} ${good ? 'available-space' : ''} ${currentPlayer.position === i ? 'current-space' : ''} ${hasExpansionIndicators ? 'has-expansion-indicators' : ''}`} title={`${i + 1} · ${space.label}`}>
               {space.type === 'score' ? <span className="space-score-discs">{Array.from({ length: G.scores[space.sourceIndex ?? -1] || 0 }, (_, disc) => <img key={disc} data-score-source-index={space.sourceIndex} src="/Images/scoring_disc.png" alt="紫色计分圆片" />)}</span> : supplySpace ? <span className="space-supply">{(stock || []).map(tile => <span key={tile.id} className="space-supply-tile" data-tile-id={tile.id}><TileFace tile={tile} /></span>)}</span> : <span>{space.type === 'barrel' ? '▣' : space.type === 'start' ? '⌂' : '✦'}</span>}
               {!supplySpace && space.type !== 'score' && <small>{space.label}</small>}
+              {hasExpansionIndicators && <span className="expansion-track-indicators" title={[...cargo.map(item => item === 'barrel' ? '桶装酒' : '干草'), ...(dieHere ? [`骰子 ${G.expansion?.cartDieValue} 点`] : [])].join('、')}>
+                {cargo.map((kind, cargoIndex) => kind === 'barrel' ? <img key={`barrel-${cargoIndex}`} className="expansion-track-cargo-token barrel" src="/Images/barrel_cargo_icon.png" alt="桶装酒" /> : <img key={`straw-${cargoIndex}`} className="expansion-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="干草" />)}
+                {dieHere && <span className="expansion-track-die"><DiceFace value={G.expansion?.cartDieValue ?? 1} /></span>}
+              </span>}
               {occupants.some(p => !pieceFlights.some(flight => flight.kind === 'meeple' && flight.playerIndex === G.players.indexOf(p) && flight.targetTrackIndex === i)) && <i className="occupants">{occupants.filter(p => !pieceFlights.some(flight => flight.kind === 'meeple' && flight.playerIndex === G.players.indexOf(p) && flight.targetTrackIndex === i)).map(p => <span key={p.color} role="img" className={`player-meeple ${G.players.indexOf(p) === currentPlayerIndex ? 'is-active-player' : ''}`} style={{ backgroundPosition: meepleSpritePosition(p.color) }} aria-label={p.name} data-player-name={p.name} data-player-index={G.players.indexOf(p)} title={`${p.name}${G.players.indexOf(p) === currentPlayerIndex ? ' · 正在行动' : ''}`} />)}</i>}
             </button>;
           })}
-          {G.barrels.map(stock => { const pos = barrelTokenPositions[stock.id - 1], goalTitle = `目标 ${stock.id}：${barrelGoals[stock.id - 1]}`, claims = G.players.flatMap(p => p.claimedBarrels.filter(b => b.id === stock.id).map(b => ({ player: p, size: b.size }))); return <div data-barrel-source-id={stock.id} className={`barrel-goal-cell ${stock.remaining === 0 ? 'exhausted' : ''}`} key={`barrel-${stock.id}`} style={{ left: `${pos.left}%`, top: `${pos.top}%` }} title={goalTitle}>{stock.remaining === 2 ? <><img className="barrel-goal-token small-under" src={`/Images/barrel_goal_${stock.id}.png`} alt="" /><img className="barrel-goal-token large-front" src={`/Images/barrel_goal_${stock.id}.png`} alt={`酒桶成就 ${stock.id}`} /></> : stock.remaining === 1 ? <img className="barrel-goal-token small-alone" src={`/Images/barrel_goal_${stock.id}.png`} alt={`酒桶成就 ${stock.id}，小酒桶`} /> : <img className="barrel-goal-token exhausted-token" src={`/Images/barrel_goal_${stock.id}.png`} alt={`已领取的酒桶成就 ${stock.id}`} />}{claims.length > 0 && <div className="barrel-claim-badges">{claims.map(({ player, size }) => <span key={`${player.color}-${size}`} className={`barrel-claim-badge ${player.color}`} title={`${player.name} 已领取${size === 'large' ? '大酒桶（4分）' : '小酒桶（2分）'}`}><img src={`/Images/player_figure_${player.color}.png`} alt="" /><b>{size === 'large' ? '大' : '小'}</b></span>)}</div>}</div>; })}
+          {G.barrels.map(stock => { const pos = barrelTokenPositions[stock.id - 1], goalTitle = `目标 ${stock.id}：${barrelGoals[stock.id - 1]}`, claims = G.players.flatMap(p => p.claimedBarrels.filter(b => b.id === stock.id).map(b => ({ player: p, size: b.size }))); return <div data-barrel-source-id={stock.id} className={`barrel-goal-cell ${stock.remaining === 0 ? 'exhausted' : ''}`} key={`barrel-${stock.id}`} style={{ left: `${pos.left}%`, top: `${pos.top}%` }} title={goalTitle}>{stock.remaining === 2 ? <><BarrelGoalArt id={stock.id} className="small-under" /><BarrelGoalArt id={stock.id} className="large-front" /></> : stock.remaining === 1 ? <BarrelGoalArt id={stock.id} className="small-alone" /> : <BarrelGoalArt id={stock.id} className="exhausted-token" />}{claims.length > 0 && <div className="barrel-claim-badges">{claims.map(({ player, size }) => <span key={`${player.color}-${size}`} className={`barrel-claim-badge ${player.color}`} title={`${player.name} 已领取${size === 'large' ? '大酒桶（4分）' : '小酒桶（2分）'}`}><img src={`/Images/player_figure_${player.color}.png`} alt="" /><b>{size === 'large' ? '大' : '小'}</b></span>)}</div>}</div>; })}
           {startSlots.map((slot, i) => { const occupant = G.players.find(p => p.startSlot === i); const selectable = canChooseStartSlot(i); const flyingOut = occupant && pieceFlights.some(flight => flight.kind === 'meeple' && flight.playerIndex === G.players.indexOf(occupant) && flight.targetStartSlot === i); return <button key={`start-${i}`} disabled={!selectable} onClick={() => chooseStartSlot(i)} className={`start-slot slot-${i} ${occupant ? 'occupied' : ''} ${selectable ? 'selectable' : ''} ${forceFirstPlayerSlot && i === 0 ? 'forced' : ''}`} style={{ left: `${slot.x / 1904 * 100}%`, top: `${slot.y / 1176 * 100}%` }} aria-label={`${slot.label}：${slot.reward}`}><span className="start-slot-caption">{slot.label}<small>{slot.reward}</small></span>{occupant && !flyingOut && <span role="img" className="start-player-figure player-meeple" style={{ backgroundPosition: meepleSpritePosition(occupant.color) }} aria-label={occupant.name} data-player-name={occupant.name} data-player-index={G.players.indexOf(occupant)} />}</button>; })}
         </div></div>
         <div className="action-area">
-          {G.phase === 'setup' && !G.startChoice && <div className="action-panel start-guide"><span className="eyebrow">STARTING POSITIONS</span><h3>逆时针选择起始奖励</h3><p>首位玩家（{G.players[G.startPlayer]?.name}）已在“首位玩家格”。现在轮到{currentPlayer.name}，请点击主板起始区域中的空位</p></div>}
+          {isExpansionStoreSetup && activeExpansionBoard && (!G.confirmationKind || G.expansion!.storeSetupReady[activeSeat]) && <div className="action-panel expansion-setup-panel"><span className="eyebrow">EXPANSION SETUP</span><div className="expansion-setup-title"><h3>放置 7 个存储板块</h3>{!G.expansion!.storeSetupReady[activeSeat] && activeExpansionBoard.hutStoreTiles.some(id => id === null) && <button className="btn btn-outline" disabled={!canConfigureExpansionStores} onClick={randomizeRemainingExpansionStores}>随机放置剩余</button>}</div><p className="panel-desc">左侧只显示尚未放置的板块。放置后自动选中下一个；剩余一个板块和一个空棚屋时会自动放置。已放置 {activeExpansionBoard.hutStoreTiles.filter(id => id !== null).length}/7。</p><div className="expansion-store-shop">{Array.from({ length: 7 }, (_, index) => index + 1).filter(tileId => !activeExpansionBoard.hutStoreTiles.includes(tileId)).map(tileId => { const flying = pieceFlights.some(flight => flight.kind === 'store-card' && flight.storeId === tileId && flight.playerIndex === activeSeat); return <button type="button" key={tileId} data-expansion-store-id={tileId} className={`expansion-store-tile ${selectedExpansionStoreId === tileId ? 'selected' : ''} ${flying ? 'is-flying' : ''}`} disabled={!canConfigureExpansionStores} onClick={() => setSelectedExpansionStoreId(tileId)} title="选择此存储板块"><img src={`/Images/store_${tileId}.png`} alt="存储板块正面" /></button>; })}</div><p className="selection-hint">{G.expansion!.storeSetupReady[activeSeat] ? '配置已完成，等待其他玩家。' : selectedExpansionStoreId ? '已选存储板块 · 点击目标棚屋进行放置或互换' : '选择一个存储板块，再点击目标棚屋'}</p>{!G.expansion!.storeSetupReady[activeSeat] && <button className="btn btn-gold" disabled={!canConfigureExpansionStores || activeExpansionBoard.hutStoreTiles.some(id => id === null)} onClick={() => { moves.finishExpansionStoreSetup(); setSelectedExpansionStoreId(null); }}>完成配置</button>}</div>}
+          {expansionStorePrompt && G.expansion && <div className="action-panel compact-panel expansion-store-prompt"><span className="eyebrow">SHED STORE TILE</span><h3>选择存储板块的用法</h3><p className="panel-desc">{expansionStoreEffects[expansionStorePrompt.tileId]}{[1, 2].includes(expansionStorePrompt.tileId) ? ' 正面持续效果会占用一个扩展位作提醒。' : ''} 翻到背面则增加一个对应颜色的存储格。</p><img className="expansion-store-choice-image" src={`/Images/store_${expansionStorePrompt.tileId}.png`} alt={`存储板块 ${expansionStorePrompt.tileId}`} /><button className="btn btn-outline" disabled={!canControlTurn || !(G.expansion?.players[expansionStorePrompt.playerIndex]?.storageExtensions ?? []).some(extension => extension === null)} onClick={() => moves.resolveExpansionStore('back')}>翻到背面 · 增加 1 个存储格</button>{expansionStorePrompt.tileId === 7 ? <div className="expansion-store-effects">{expansionStoreCargoChoices.map(({ cargo, destinations, label }) => <button key={`${cargo.join('-')}-${destinations.join('-')}`} className="btn btn-gold" disabled={!canControlTurn} onClick={() => moves.resolveExpansionStore('front', cargo, destinations)}>{label}</button>)}</div> : [3, 4].includes(expansionStorePrompt.tileId) ? <div className="expansion-store-effects">{(G.expansion.players[expansionStorePrompt.playerIndex]?.breweryUpgradeTiles ?? [null, null]).map((upgrade, breweryIndex) => upgrade === null && <button key={breweryIndex} className="btn btn-gold" disabled={!canControlTurn} onClick={() => moves.resolveExpansionStore('front', [], [], breweryIndex)}>覆盖第 {breweryIndex + 1} 酒馆（{G.expansion!.players[expansionStorePrompt.playerIndex].breweryScores[breweryIndex]} → {expansionStorePrompt.tileId === 3 ? 5 : 6} 分/桶）</button>)}</div> : <button className="btn btn-gold" disabled={!canControlTurn || ([1, 2].includes(expansionStorePrompt.tileId) && !(G.expansion?.players[expansionStorePrompt.playerIndex]?.storageExtensions ?? []).some(extension => extension === null)) || ((expansionStorePrompt.tileId === 5 || expansionStorePrompt.tileId === 6) && !validCartLoadChoices(G.expansion.players[expansionStorePrompt.playerIndex], expansionStorePrompt.tileId === 5 ? 4 : 6).length)} onClick={() => moves.resolveExpansionStore('front')}>使用正面</button>}</div>}
+          {G.phase === 'setup' && G.setupStage !== 'expansion-stores' && !G.startChoice && <div className="action-panel start-guide"><span className="eyebrow">STARTING POSITIONS</span><h3>逆时针选择起始奖励</h3><p>首位玩家（{G.players[G.startPlayer]?.name}）已在“首位玩家格”。现在轮到{currentPlayer.name}，请点击主板起始区域中的空位</p></div>}
           {G.startChoice && <div className="action-panel compact-panel"><span className="eyebrow">START BONUS</span><h3>选择推进的资源</h3><p className="panel-desc">将选中的资源标记向前推进2格；若已在第20格，每推进1个获得1个钱币</p><div className="score-picker">{resources.map(r => <button key={r} disabled={!canControlTurn} onClick={() => chooseStartResource(r)} style={{ borderColor: resourceColors[r] }}>{resourceLabels[r]}</button>)}</div></div>}
-          {!action && !activeShedChoice && !G.confirmationKind && G.phase === 'play' && <div className="empty-action"><div className="action-glyph">✦</div><div><b>{currentPlayer.retired ? '本轮已结束' : `轮到 ${currentPlayer.name}`}</b><p>{currentPlayer.retired ? '等待仍在公共轨上行动的玩家。' : '沿公共轨向前移动，进入一个可使用的行动格；可以进入一个空起始格，结束本轮行动'}</p></div><span className="move-hint">{canMove ? '选择一个行动格' : '等待对手'}</span></div>}
-          {action?.type === 'resource' || action?.type === 'monk' ? <div className="action-panel"><div className="panel-title"><div><span className="eyebrow">{action.type === 'resource' ? 'GARDEN GOODS' : 'BROTHERHOOD'}</span><h3>{action.type === 'resource' ? '选择资源板块' : '选择僧侣板块'}</h3></div><div className="cost-note">钱币足够时可连续购买多个</div></div><div className="purchase-flow"><div className="flow-step"><b>1</b><span>选择板块</span></div><div className="shop-row">{market?.map((tile: Tile) => <button key={tile.id} data-shop-tile-id={tile.id} className={`shop-tile ${tile.resource || 'monk-tile'} ${selectedTile?.id === tile.id ? 'selected' : ''}`} onClick={() => { if (canControlTurn) setSelectedTileId(tile.id); }} disabled={!canControlTurn || market.length === 1}><TileFace tile={tile} /><small>{tile.kind === 'resource' ? resourceLabels[tile.resource!] : tile.monk}</small></button>)}</div><div className="flow-step"><b>2</b><span>{selectedTile ? '选择花园空格' : '先选板块'}</span></div><span className="selection-hint">{selectedTile ? '阳面价格为阴面的2倍。点击空格完成放置' : market?.length === 1 ? '唯一板块已自动选中。' : '选择板块后，花园会高亮所有当前可放置的位置。'}</span></div>{!activeShedChoice && <button className="btn btn-outline finish-purchase" disabled={!canControlTurn || (action.purchases ?? 0) < 1 || pieceFlights.length > 0} onClick={() => moves.finishPurchase()}>{(action.purchases ?? 0) < 1 ? '至少购买1个板块' : '结束购买并确认行动'}</button>}</div> : null}
-          {action?.type === 'score' && <div className="action-panel compact-panel"><div className="panel-title"><div><span className="eyebrow">SCORING TOKEN</span><h3>将紫色圆片放到对应图标</h3></div></div><p className="panel-desc">每个玩家版图上的计分图标只能放置一次；A 激活指定产值板块，B 触发指定僧侣，C 激活指定资源</p>{currentScoreSpace?.scoreType === 'ABC' && <div className="score-picker score-category-picker">{scoreCategories.map(category => <button key={category} disabled={!canControlTurn} className={selectedScoreCategory === category ? 'selected' : ''} onClick={() => { if (!canControlTurn) return; setScoreCategory(category); setScoreChoice(''); }}>{category} 类</button>)}</div>}<div className="score-picker">{scoreOptions.map(option => <button key={option} disabled={!canControlTurn} className={selectedScoreOption === option ? 'selected' : ''} onClick={() => { if (canControlTurn) setScoreChoice(option); }}>{selectedScoreCategory === 'A' ? `产值 ${option}` : selectedScoreCategory === 'C' ? resourceLabels[option as Resource] : <img className="score-monk-icon" src={`/Images/monk_tile_${String.fromCharCode(65 + monkNames.indexOf(option))}.png`} alt="僧侣图标" title="僧侣板块" />}</button>)}</div><button className="btn btn-gold" disabled={!canControlTurn || !selectedScoreOption} onClick={submitScore}>放置圆片<span>↗</span></button></div>}
+          {!action && !activeShedChoice && !G.confirmationKind && G.phase === 'play' && <div className="empty-action"><div className="action-glyph">✦</div><div><b>{currentPlayer.retired ? '本轮已结束' : `轮到 ${currentPlayer.name}`}</b><p>{currentPlayer.retired ? '等待仍在公共轨上行动的玩家。' : '沿公共轨向前移动，进入一个可使用的行动格；可以进入一个空起始格，结束本轮行动'}</p></div><span className="move-hint">{canMove ? '选择行动格' : '等待对手'}</span></div>}
+          {(action?.type === 'resource' || action?.type === 'monk') && !action.baseDone && !expansionStorePrompt ? <div className="action-panel"><div className="panel-title"><div><span className="eyebrow">{action.type === 'resource' ? 'GARDEN GOODS' : 'BROTHERHOOD'}</span><h3>{action.type === 'resource' ? '选择资源板块' : '选择僧侣板块'}</h3></div><div className="cost-note">钱币足够时可连续购买多个</div></div><div className="purchase-flow"><div className="flow-step"><b>1</b><span>选择板块</span></div><div className="shop-row">{market?.map((tile: Tile) => <button key={tile.id} data-shop-tile-id={tile.id} className={`shop-tile ${tile.resource || 'monk-tile'} ${selectedTile?.id === tile.id ? 'selected' : ''}`} onClick={() => { if (canControlTurn) setSelectedTileId(tile.id); }} disabled={!canControlTurn || market.length === 1}><TileFace tile={tile} /><small>{tile.kind === 'resource' ? resourceLabels[tile.resource!] : tile.monk}</small></button>)}</div><div className="flow-step"><b>2</b><span>{selectedTile ? '选择花园空格' : '先选板块'}</span></div><span className="selection-hint">{selectedTile ? '阳面价格为阴面的2倍。点击空格完成放置' : market?.length === 1 ? '唯一板块已自动选中。' : '选择板块后，花园会高亮所有当前可放置的位置。'}</span></div>{!activeShedChoice && !expansionStorePrompt && <button className="btn btn-outline finish-purchase" disabled={!canControlTurn || (action.purchases ?? 0) < 1 || pieceFlights.length > 0} onClick={() => moves.finishPurchase()}>{(action.purchases ?? 0) < 1 ? '至少购买1个板块' : '结束购买并继续'}</button>}</div> : null}
+          {action?.type === 'score' && !action.baseDone && <div className="action-panel compact-panel"><div className="panel-title"><div><span className="eyebrow">SCORING TOKEN</span><h3>将紫色圆片放到对应图标</h3></div></div><p className="panel-desc">每个玩家版图上的计分图标只能放置一次；A 激活指定产值板块，B 触发指定僧侣，C 激活指定资源</p>{currentScoreSpace?.scoreType === 'ABC' && <div className="score-picker score-category-picker">{scoreCategories.map(category => <button key={category} disabled={!canControlTurn} className={selectedScoreCategory === category ? 'selected' : ''} onClick={() => { if (!canControlTurn) return; setScoreCategory(category); setScoreChoice(''); }}>{category} 类</button>)}</div>}<div className="score-picker">{scoreOptions.map(option => <button key={option} disabled={!canControlTurn} className={selectedScoreOption === option ? 'selected' : ''} onClick={() => { if (canControlTurn) setScoreChoice(option); }}>{selectedScoreCategory === 'A' ? `产值 ${option}` : selectedScoreCategory === 'C' ? resourceLabels[option as Resource] : <img className="score-monk-icon" src={`/Images/monk_tile_${String.fromCharCode(65 + monkNames.indexOf(option))}.png`} alt="僧侣图标" title="僧侣板块" />}</button>)}</div><button className="btn btn-gold" disabled={!canControlTurn || !selectedScoreOption} onClick={submitScore}>放置圆片<span>↗</span></button></div>}
+          {G.expansionEnabled && action && !action.baseDone && (canTakeCargoHere || canUseCartHere) && <div className="action-panel compact-panel"><span className="eyebrow">可选扩展行动</span><div><button className="btn btn-outline" disabled={!canControlTurn || !!activeShedChoice} onClick={() => moves.skipExpansionBaseAction()}>跳过基础行动，执行扩展行动</button></div></div>}
+          {G.expansionEnabled && action?.baseDone && !action.cargoDone && <div className="action-panel compact-panel expansion-cargo-panel"><span className="eyebrow">CARGO STORAGE</span><h3>从此行动格拿取货物</h3><p className="panel-desc">先选择图标，再点击右侧扩展版图上一个空存储格；临时存储格需要支付 4 钱币。</p><div className="expansion-cargo-actions">{expansionCargoPile.map((kind, index) => { const firstOfKind = expansionCargoPile.indexOf(kind); return <button type="button" className={`expansion-cargo-pick ${selectedExpansionCargoKind === kind && firstOfKind === index ? 'selected' : ''}`} key={`${kind}-${index}`} disabled={!canControlTurn} aria-label={`选择${kind === 'barrel' ? '桶装酒' : '干草'}`} title={kind === 'barrel' ? '桶装酒' : '干草'} onClick={() => { setSelectedExpansionCargoKind(kind); if (!isViewingCurrent) setViewingPlayerIndex(activeSeat); }}>{kind === 'barrel' ? <img src="/Images/barrel_cargo_icon.png" alt="" /> : <img className="hay-icon" src="/Images/straw_cube_icon.png" alt="" />}</button>; })}</div><p className="selection-hint">{selectedExpansionCargoKind ? '已选货物 · 点击扩展版图上的空格放入' : '请选择要放入存储格的货物'}</p><button className="btn btn-outline" disabled={!canControlTurn || ((action.actionsDone ?? 0) === 0 && (action.cargoTaken ?? 0) === 0 && !canUseCartHere)} onClick={() => hasStorableCargoRemaining ? setShowUnstoredCargoPrompt(true) : moves.finishExpansionCargo()}>结束拿取货物</button></div>}
+          {G.expansionEnabled && action?.baseDone && action.cargoDone && action.cartDone === false && !G.expansion?.cartMovement && <div className="action-panel compact-panel expansion-cart-panel"><span className="eyebrow">CART DIE</span><h3>运输推车</h3><p className="panel-desc">使用主版图此格的骰子，移动 {G.expansion?.cartDieValue} 格{activeExpansionBoard?.cartStepBonus ? `（含加成 +${activeExpansionBoard.cartStepBonus}）` : ''}。门只能经过，不能停留。</p><button className="btn btn-gold" disabled={!canControlTurn} onClick={() => moves.useExpansionCart()}>掷骰并移动推车</button><button className="btn btn-outline" disabled={!canControlTurn || ((action.purchases ?? 0) === 0 && (action.actionsDone ?? 0) === 0 && (action.cargoTaken ?? 0) === 0)} onClick={() => moves.skipExpansionCart()}>跳过推车行动</button></div>}
+          {G.expansionEnabled && (G.expansion?.cartMovement?.nextLocation ?? -1) >= 0 && action && <div className="action-panel compact-panel expansion-cart-panel"><span className="eyebrow">FIRST GATE · LOAD BARRELS</span><h3>装载桶装酒</h3><p className="panel-desc">每装 1 桶消耗 1 捆干草。若推车从其他位置移动到此处，可以不装载并停在修道院起点；若从起点出发，则必须装载或先完成其他行动。</p><div className="expansion-cart-loads">{G.expansion!.cartMovement!.loadChoices.map(count => { const movement = G.expansion!.cartMovement!, onlySkip = count === 0 && movement.completion === 'action' && (movement.startPosition ?? activeExpansionBoard?.cartPosition) === 0 && activeExpansionBoard?.deliveredBarrels === (movement.deliveredAtStart ?? activeExpansionBoard.deliveredBarrels) && (action.purchases ?? 0) === 0 && (action.actionsDone ?? 0) === 0 && (action.cargoTaken ?? 0) === 0; return <button key={count} className="btn btn-outline" disabled={!canControlTurn || onlySkip} onClick={() => moves.chooseExpansionCartLoad(count)}>{count === 0 ? '不装载，留在起点' : `装载 ${count} 桶`}</button>; })}</div></div>}
           {privilegePrompt && <div className="action-panel compact-panel privilege-prompt"><span className="eyebrow">PRIVILEGE REWARD</span><h3>{`完成第 ${privilegePrompt.pairIndex + 1} 组计分标记`}</h3><p className="panel-desc">{'立即放置一张尚未弃置的特权卡到对应组右侧，或永久跳过。'}</p>{privilegePrompt.kind === 'pair' && <div className="privilege-pick-list">{activePlayer.privileges.filter((card: string) => card !== 'A' || activePlayer.board.some((cell: any) => !!cell.tile?.resource)).map((card: string) => <button key={card} disabled={!canControlTurn} onClick={() => choosePrivilegeCard(card)}><img src={`/Images/privilege_card_front_${card}.png`} alt={`特权卡 ${card}`} /><span>{card}{card === 'A' ? ' · 资源轨道' : card === 'B' ? ' · 最后资源推进' : card === 'C' ? ' · 酒桶终局 +1' : card === 'D' ? ' · +12钱币' : ' · 酿酒师 +5'}</span></button>)}<button className="skip-privilege" disabled={!canControlTurn} onClick={() => choosePrivilegeCard('skip')}>本组不放置<br /><small>之后不能补放</small></button></div>}{privilegeCardChoice === 'A' && <p className="panel-desc">只显示至少有 1 块对应资源板块的种类。</p>}{privilegeResources.length > 0 && <div className="score-picker privilege-resource-picker">{privilegeResources.map(resource => <button key={resource} disabled={!canControlTurn} onClick={() => choosePrivilegeResource(resource)} style={{ borderColor: resourceColors[resource] }}>{resourceLabels[resource]}</button>)}</div>}</div>}
           {!action && G.confirmationKind === 'turn' && G.log[0]?.includes('到达酒桶成就格') && <div className="action-panel compact-panel"><span className="eyebrow">CELLAR ACHIEVEMENTS</span><h3>酒桶成就已领取</h3><p className="panel-desc">{G.log[0]}</p></div>}
           {action?.type === 'start' && !G.startChoice && <div className="action-panel start-guide"><span className="eyebrow">RETURN TO START</span><h3>选择起始区域空位</h3><p>{forceFirstPlayerSlot ? '其他玩家都已返回，首位玩家格空置；你必须停在首位玩家格。' : '点击主板起始区域中任一空位，立即领取该格奖励并结束本轮。'}</p></div>}
-          {activeShedChoice && <div className="action-panel shed-choice-panel"><span className="eyebrow">SHED BONUS</span><h3>棚屋奖励 · 周围产值 {activeShedChoice.value}</h3><p>酿酒师轨道 +{activeShedChoice.brewerAdvance} 格。请选择激活的相邻板块：{shedChoiceInstruction(activeShedChoice)}</p><div className="shed-choice-status">已选 {activeShedChoice.selected.length} / {activeShedChoice.activateCount} 块 · 点击花园中高亮的相邻板块</div><button className="btn btn-gold" disabled={!canControlTurn || !validShedSelection(activeShedChoice)} onClick={completeShedChoice}>完成棚屋激活选择</button></div>}
+          {activeShedChoice && !expansionStorePrompt && <div className="action-panel shed-choice-panel"><span className="eyebrow">SHED BONUS</span><h3>棚屋奖励 · 周围产值 {activeShedChoice.value}</h3><p>酿酒师轨道 +{activeShedChoice.brewerAdvance} 格。请选择激活的相邻板块：{shedChoiceInstruction(activeShedChoice)}</p><div className="shed-choice-status">已选 {activeShedChoice.selected.length} / {activeShedChoice.activateCount} 块 · 点击花园中高亮的相邻板块</div><button className="btn btn-gold" disabled={!canControlTurn || !validShedSelection(activeShedChoice)} onClick={completeShedChoice}>完成棚屋激活选择</button></div>}
           {!isLocal && !onlineVoteState.passed && !canControlTurn && G.confirmationKind && <div className="action-confirm-bar spectator-waiting"><b>{isBotTurn ? `${currentPlayer.name} 正在处理本次行动` : `等待 ${currentPlayer.name} 确认行动`}</b><span>对方确认后将继续</span></div>}
-          {isBotTurn && <div className="action-confirm-bar bot-action-status"><b>{currentPlayer.name} 正在思考</b><span>搜索次数：{activeBotSearch?.iterations ?? 0}</span></div>}
+          {/* {isBotTurn && <div className="action-confirm-bar bot-action-status"><b>{currentPlayer.name} 正在思考</b><span>搜索次数：{activeBotSearch?.iterations ?? 0}</span></div>} */}
           {G.undoSnapshot && canControlTurn && <div className="action-confirm-bar"><span>{G.confirmationKind ? '行动已完成，请确认或撤回。' : activeShedChoice ? '请选择棚屋奖励板块，或撤回整次行动。' : action?.type === 'resource' || action?.type === 'monk' ? '可继续购买；结束购买后可确认或撤回整次行动。' : '可以撤回当前选择，重新选行动格。'}</span>{G.stepUndoSnapshots?.length ? <button className="btn btn-undo" onClick={() => requestGameAction('undoStep')}>撤回上一步</button> : null}<button className="btn btn-undo" onClick={() => requestGameAction('undoAction')}>撤回整次行动</button>{G.confirmationKind && <button className="btn btn-gold btn-confirm" onClick={() => requestGameAction('confirmAction')}>确认行动</button>}</div>}
         </div>
       </section>
-      <aside className={`right-rail ${!isViewingOwn ? 'is-inspecting-opponent' : ''}`}><div className="garden-heading"><div><h2>{me.name}的修道院</h2>{!isViewingOwn && <small className="inspection-hint">正在查看对手版图 · 只读</small>}</div><div className="garden-legend"></div></div><div className="garden-board-reserved"><Garden player={me} playerIndex={viewingPlayerIndex} pieceFlights={pieceFlights} selectedTile={isViewingCurrent && canPlace ? selectedTile : undefined} sourceIndex={currentActionSpace?.sourceIndex} coins={activePlayer.coins} canPlace={isViewingCurrent && canPlace} activePlayer={me} shedChoice={isViewingCurrent && canControlTurn ? activeShedChoice : undefined} flightTileId={pieceFlights.find(flight => flight.kind === 'tile')?.tile?.id} flightTargetIndex={pieceFlights.find(flight => flight.kind === 'tile')?.targetIndex} flightScoreIndex={pieceFlights.find(flight => flight.kind === 'disc')?.scoreIndex} scoreTargetIndices={scoreTargetIndices} onScoreTarget={placeScoreFromBoard} onShedToggle={(i) => { if (canControlTurn && isViewingCurrent) moves.toggleShedChoice(i); }} onSelect={(i) => { if (canControlTurn && isViewingCurrent) placeTile(i); }} cells={garden} /></div><div className="rail-heading">特权卡 · 点击弃置可得3个钱币</div><div className="privileges">{['A', 'B', 'C', 'D', 'E'].filter(card => !me.privilegePairs.includes(card)).map(card => { const inHand = me.privileges.includes(card); const earned = me.privilegePairs.includes(card); const blocked = !canControlTurn || !isViewingCurrent || (!!G.confirmationKind && G.confirmationKind !== 'turn') || !!privilegePrompt; return <div className={`privilege ${inHand ? '' : 'used'}`} data-privilege-card={card} key={card}><img src={`/Images/privilege_card_front_${card}.png`} alt={`特权卡 ${card}`} />{inHand ? <button disabled={blocked} onClick={() => { if (!canControlTurn) return; animatePrivilegeCoins(currentPlayerIndex, card, 3); moves.discardPrivilege(card); }}>弃置 +3</button> : <span>{earned ? '已放置' : '已弃置'}</span>}</div>; })}</div><div className="rail-heading">已领取酒桶 <span className="count">{me.claimedBarrels.length}</span></div><div className="barrel-strip">{me.claimedBarrels.map((b, i) => <span key={`${b.id}-${i}`} className={`barrel-claimed-item ${b.size}`} style={{ visibility: pieceFlights.some(flight => flight.kind === 'barrel' && flight.playerIndex === viewingPlayerIndex && flight.barrelId === b.id && flight.barrelSize === b.size) ? 'hidden' : 'visible' }} title={`目标 ${b.id}：${barrelGoals[b.id - 1]} ${b.size === 'large' ? '大酒桶，4分' : '小酒桶，2分'}`}><img src={`/Images/barrel_goal_${b.id}.png`} alt={`目标 ${b.id}`} /><small>{b.size === 'large' ? '大 · 4分' : '小 · 2分'}</small></span>)}</div><div className="score-summary"><span>当前钱币</span><b><i className="player-coin-icon" aria-label="钱币" /> {me.coins}</b><span>酒桶计分</span><b>{me.claimedBarrels.reduce((n, b) => n + (b.size === 'large' ? 4 : 2), 0) + (me.privilegePairs.includes('C') ? me.claimedBarrels.length : 0)} 分</b></div></aside>
+      <aside className={`right-rail ${!isViewingOwn ? 'is-inspecting-opponent' : ''}`}><div className="garden-heading"><div><h2>{me.name}的修道院</h2>{!isViewingOwn && <small className="inspection-hint">正在查看对手版图 · 只读</small>}</div><div className="garden-legend"></div></div><div className={`garden-board-pair ${G.expansionEnabled && G.expansion ? 'has-expansion' : ''}`}>{G.expansionEnabled && G.expansion && <div className="expansion-board-reserved"><ExpansionTransportBoard board={G.expansion.players[viewingPlayerIndex]} color={me.color} playerIndex={viewingPlayerIndex} pieceFlights={pieceFlights} storeEffectLabels={expansionStoreEffects} cargoPlacement={isViewingCurrent && canControlTurn && action?.baseDone && !action.cargoDone && selectedExpansionCargoKind && expansionCargoPile.includes(selectedExpansionCargoKind) ? { kind: selectedExpansionCargoKind, slots: activeExpansionBoard ? emptyExpansionStorageSlots(activeExpansionBoard) : [], temporaryAvailable: !!activeExpansionBoard && !activeExpansionBoard.temporaryStorage && activePlayer.coins >= 4, onSelectSlot: (slot: number) => moves.takeExpansionCargo(selectedExpansionCargoKind, slot) } : undefined} /></div>}<div className="garden-board-reserved"><Garden player={me} playerIndex={viewingPlayerIndex} pieceFlights={pieceFlights} selectedTile={isViewingCurrent && canPlace ? selectedTile : undefined} sourceIndex={currentActionSpace?.sourceIndex} coins={activePlayer.coins} canPlace={isViewingCurrent && canPlace} activePlayer={me} shedChoice={isViewingCurrent && canControlTurn && !expansionStorePrompt ? activeShedChoice : undefined} flightTileId={pieceFlights.find(flight => flight.kind === 'tile')?.tile?.id} flightTargetIndex={pieceFlights.find(flight => flight.kind === 'tile')?.targetIndex} flightScoreIndex={pieceFlights.find(flight => flight.kind === 'disc' && flight.playerIndex === viewingPlayerIndex)?.scoreIndex} scoreTargetIndices={scoreTargetIndices} onScoreTarget={placeScoreFromBoard} onShedToggle={(i) => { if (canControlTurn && isViewingCurrent) moves.toggleShedChoice(i); }} onSelect={(i) => { if (canControlTurn && isViewingCurrent) placeTile(i); }} cells={garden} storeTiles={G.expansionEnabled ? G.expansion?.players[viewingPlayerIndex]?.hutStoreTiles : undefined} storeSetup={canConfigureExpansionStores} selectedStoreId={selectedExpansionStoreId} storeSetupReady={G.expansion?.storeSetupReady?.[viewingPlayerIndex] ?? false} onStoreTarget={placeExpansionStoreTarget} /></div></div><div className="rail-heading">特权卡 · 点击弃置可得3个钱币</div><div className="privileges">{['A', 'B', 'C', 'D', 'E'].filter(card => !me.privilegePairs.includes(card)).map(card => { const inHand = me.privileges.includes(card); const earned = me.privilegePairs.includes(card); const blocked = !canControlTurn || !isViewingCurrent || (!!G.confirmationKind && G.confirmationKind !== 'turn') || !!privilegePrompt; return <div className={`privilege ${inHand ? '' : 'used'}`} data-privilege-card={card} key={card}><img src={`/Images/privilege_card_front_${card}.png`} alt={`特权卡 ${card}`} />{inHand ? <button disabled={blocked} onClick={() => { if (!canControlTurn) return; animatePrivilegeCoins(currentPlayerIndex, card, 3); moves.discardPrivilege(card); }}>弃置 +3</button> : <span>{earned ? '已放置' : '已弃置'}</span>}</div>; })}</div><div className="rail-heading">已领取酒桶 <span className="count">{me.claimedBarrels.length}</span></div><div className="barrel-strip">{me.claimedBarrels.map((b, i) => <span key={`${b.id}-${i}`} className={`barrel-claimed-item ${b.size}`} style={{ visibility: pieceFlights.some(flight => flight.kind === 'barrel' && flight.playerIndex === viewingPlayerIndex && flight.barrelId === b.id && flight.barrelSize === b.size) ? 'hidden' : 'visible' }} title={`目标 ${b.id}：${barrelGoals[b.id - 1]} ${b.size === 'large' ? '大酒桶，4分' : '小酒桶，2分'}`}><BarrelGoalArt id={b.id} className="claimed-barrel-art" /><small>{b.size === 'large' ? '大 · 4分' : '小 · 2分'}</small></span>)}</div><div className="score-summary"><span>当前钱币</span><b><i className="player-coin-icon" aria-label="钱币" /> {me.coins}</b><span>酒桶计分</span><b>{viewingScoring.barrelScore + viewingScoring.expansionBarrelScore} 分</b></div></aside>
       <aside className="far-right-rail"><div className="rail-heading">玩家信息 · 点击查看版图</div><div className="player-roster">{rosterOrder.map(i => { const p = G.players[i];
-        const scoring = scoreBreakdown(p); const searchStatus = botSearchStatus?.playerID === i ? botSearchStatus : sharedBotSearches.find(status => status.playerID === i && status.thinking && Date.now() - status.updatedAt < 12000); return <div className={`player-info-unit ${i === viewingPlayerIndex ? 'is-viewing' : ''}`} data-player-index={i} key={i} role="button" tabIndex={0} aria-label={`查看${p.name}的玩家版图`} onClick={() => setViewingPlayerIndex(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingPlayerIndex(i); } }}>
+        const scoring = scoreBreakdown(p, G.expansionEnabled ? G.expansion?.players[i] : undefined); const searchStatus = botSearchStatus?.playerID === i ? botSearchStatus : sharedBotSearches.find(status => status.playerID === i && status.thinking && Date.now() - status.updatedAt < 12000); return <div className={`player-info-unit ${i === viewingPlayerIndex ? 'is-viewing' : ''}`} data-player-index={i} key={i} role="button" tabIndex={0} aria-label={`查看${p.name}的玩家版图`} onClick={() => setViewingPlayerIndex(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingPlayerIndex(i); } }}>
           <div className={`player-card ${i === Number(ctx.currentPlayer) ? 'is-turn' : ''} ${p.retired ? 'is-done' : ''}`}><div className={`avatar ${p.color}`}>{p.name.slice(-1)}</div><div className="player-name"><span className="player-name-score">{p.name}{i === ownPlayerIndex && <b className="self-player-badge">你</b>}<b title="实时计分">★ {scoring.total}</b></span><small>{botSeats.includes(i) ? `${botDifficulty === 'expert' ? '专家' : '普通'}机器人${i === Number(ctx.currentPlayer) ? searchStatus ? ` · 搜索中 ${searchStatus.iterations} 次` : ' · 正在行动' : ''}` : p.retired ? '本轮已休息' : i === Number(ctx.currentPlayer) ? '正在行动' : '等待中'}</small></div><div className="money"><i className="player-coin-icon" aria-label="钱币" /> {p.coins}</div></div>
           <div className="player-live-details" title={`按当前状态预演终局：资源归并后最低为 ${scoring.minResource}，生产 ${scoring.productionScore} 分；酒桶 ${scoring.barrelScore} 分；起始奖励 ${scoring.startBonus} 分。`}>
             <div className="player-info-table">
@@ -819,6 +1104,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
         </div>;
       })}</div><div className="rail-heading log-heading">行动日志</div><div className="log-list">{G.log.slice(0, 80).reverse().map((line, i) => <p key={i} className={line.startsWith('[[TURN:') ? 'log-turn-divider' : ''}>{renderLog(line, G.players)}</p>)}</div></aside>
     </div>
+    {showUnstoredCargoPrompt && action?.baseDone && !action.cargoDone && hasStorableCargoRemaining && <div className="modal-backdrop" onClick={() => setShowUnstoredCargoPrompt(false)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="unstored-cargo-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowUnstoredCargoPrompt(false)}>×</button><span className="eyebrow">CARGO STORAGE</span><h2 id="unstored-cargo-title">还有货物可以拿取</h2><p>当前行动格还剩 {remainingCargoReminder}，并且你还有空存储格可用。要返回继续放置吗？</p><div className="confirm-actions"><button className="btn btn-outline" onClick={() => setShowUnstoredCargoPrompt(false)}>返回拿取</button><button className="btn btn-gold" onClick={() => { setShowUnstoredCargoPrompt(false); moves.finishExpansionCargo(); }}>仍然结束</button></div></div></div>}
     {showRules && <div className="modal-backdrop" onClick={() => setShowRules(false)}><div className="rules-modal" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowRules(false)}>×</button><span className="eyebrow">HOW TO PLAY</span><h2>修道院经营要点</h2><p>每回合沿公共轨道向前移动，并执行落点行动。购买资源与僧侣板块后，将它们放入花园的向阳或阴凉空格。</p><ul><li>阴凉板块按面值购买；资源激活时获得钱币。</li><li>向阳板块花费双倍；资源激活时推进对应生产轨道。</li><li>计分行动会激活对应产值、资源或僧侣，帮助提升最终分数。</li><li>返回起点领取奖励，本轮休息；所有人都返回后开始新一轮。</li></ul><p className="fine-print">线上联机需要先启动项目内的 boardgame.io 服务端。各回合在玩家设备上依次进行。</p></div></div>}
     {showAbandonConfirm && <div className="modal-backdrop" onClick={() => setShowAbandonConfirm(false)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="abandon-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowAbandonConfirm(false)}>×</button><span className="eyebrow">ABANDON GAME</span><h2 id="abandon-title">放弃当前对局？</h2><p>放弃后会删除本地存档，无法继续这场对局。</p><div className="confirm-actions"><button className="btn btn-outline" onClick={() => setShowAbandonConfirm(false)}>继续游戏</button><button className="btn btn-danger" onClick={onAbandon}>确认放弃</button></div></div></div>}
     {toast && <div className="toast" onClick={() => setToast('')}>{toast} <span>×</span></div>}
@@ -911,6 +1197,47 @@ function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove 
 function TileFace({ tile }: { tile: Tile }) {
   return tile.resource ? <div className="tile-image resource-face"><img src={`/Images/${tile.resource}_${tile.value}.png`} alt="" /></div> : <div className="tile-image monk-face"><img src={`/Images/monk_tile_${['A', 'B', 'C', 'D'][Math.max(0, ['僧侣A', '僧侣B', '僧侣C', '僧侣D'].indexOf(tile.monk || ''))]}.png`} alt="" /></div>;
 }
+function BarrelGoalArt({ id, className = '' }: { id: number; className?: string }) {
+  return <img className={`barrel-goal-token ${className}`} src={`/Images/barrel_goal_${id}.png`} alt={id ? `酒桶成就 ${id}` : ''} />;
+}
+function DiceFace({ value }: { value: number }) {
+  const pips: Record<number, [number, number][]> = {
+    1: [[16, 16]],
+    2: [[9, 9], [23, 23]],
+    3: [[9, 9], [16, 16], [23, 23]],
+    4: [[9, 9], [23, 9], [9, 23], [23, 23]],
+    5: [[9, 9], [23, 9], [16, 16], [9, 23], [23, 23]],
+    6: [[9, 8], [23, 8], [9, 16], [23, 16], [9, 24], [23, 24]],
+  };
+  const face = Math.max(1, Math.min(6, Math.floor(value)));
+  return <svg className="expansion-cart-die-face" viewBox="0 0 32 32" role="img" aria-label={`骰子 ${face} 点`}><rect x="1" y="1" width="30" height="30" rx="5" fill="#fff8e8" stroke="#30251b" strokeWidth="2" />{pips[face].map(([cx, cy], i) => <circle key={i} cx={cx} cy={cy} r="2.6" fill="#211c17" />)}</svg>;
+}
+function ExpansionTransportBoard({ board, color, playerIndex, pieceFlights, storeEffectLabels, cargoPlacement }: { board: ExpansionPlayerBoard; color: string; playerIndex: number; pieceFlights: PieceFlight[]; storeEffectLabels: Record<number, string>; cargoPlacement?: { kind: ExpansionCargo; slots: number[]; temporaryAvailable: boolean; onSelectSlot: (slot: number) => void } }) {
+  const slots = [[14.5, 4.7], [28.8, 4.7], [43.5, 4.7], [58.1, 4.7], [72.6, 4.7], [14.5, 12.0], [28.8, 12.0], [43.5, 12.0], [58.1, 12.0], [72.6, 12.0]];
+  const cargoGlyph = (cargo: 'barrel' | 'straw') => cargo === 'barrel'
+    ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="桶装酒" title="桶装酒" />
+    : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="干草" title="干草" />;
+  const cartLocation = cartRoute[board.cartPosition] ?? cartRoute[0];
+  const cartFlying = pieceFlights.some(flight => flight.kind === 'cart' && flight.playerIndex === playerIndex && flight.targetRouteIndex === board.cartPosition);
+  const storageFlightHides = (index: number, temporary = false) => pieceFlights.some(flight => flight.kind === 'expansion-cargo' && flight.playerIndex === playerIndex && (temporary ? (flight.sourceTemporaryStorage || flight.targetTemporaryStorage) : (flight.sourceStorageIndex === index || flight.targetStorageIndex === index)));
+  return <div className="expansion-transport-wrap">
+    <div className="expansion-transport-board" data-transport-color={color} data-transport-player-index={playerIndex}>
+      <img className="expansion-transport-art" src={`/Images/board_ex_${color}.jpg`} alt={`${color} 玩家运输板`} />
+      {board.storage.map((cargo, index) => { const pos = slots[index]; if (!pos || !board.storageUnlocked?.[index]) return null; const selectable = !!cargoPlacement && cargo === null && cargoPlacement.slots.includes(index); const hiddenByFlight = storageFlightHides(index); const unlockableSlot = !(BUILT_IN_STORAGE_SLOTS as readonly number[]).includes(index); return <button type="button" data-expansion-storage-index={index} className={`transport-storage-marker ${selectable ? 'selectable' : ''}`} key={index} disabled={!selectable} onClick={() => cargoPlacement?.onSelectSlot(index)} aria-label={`将${cargoPlacement?.kind === 'barrel' ? '桶装酒' : '干草'}放入存储格`} title={selectable ? '点击放入选中的货物' : undefined} style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }}>{unlockableSlot && cargo === null && <img className="transport-storage-unlock-art" src={`/Images/storage_slot_marker_${color}.png`} alt="已解锁存储格" />}{cargo && !hiddenByFlight ? cargoGlyph(cargo) : null}</button>; })}
+      {board.storageExtensions?.map((extension: StorageExtension, extensionIndex) => { if (extension?.kind !== 'effect') return null; const slot = UNLOCKABLE_STORAGE_SLOTS[extensionIndex], pos = slots[slot]; if (!pos) return null; return <img key={`persistent-effect-${extensionIndex}`} className="transport-extension-effect" style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }} src={`/Images/store_${extension.tileId}.png`} alt="" title={`持续效果：${storeEffectLabels[extension.tileId]}`} />; })}
+      {board.breweryUpgradeTiles?.map((tileId, breweryIndex) => { if (!tileId) return null; const pos = breweryIndex === 0 ? [53, 64.5] : [53, 48.5]; return <img key={`brewery-upgrade-${breweryIndex}`} className="transport-brewery-upgrade" style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }} src={`/Images/store_${tileId}.png`} alt={`覆盖第 ${breweryIndex + 1} 酒馆计分`} title={`第 ${breweryIndex + 1} 酒馆每桶 ${board.breweryScores[breweryIndex]} 分`} />; })}
+      {cargoPlacement?.temporaryAvailable ? <button type="button" data-temporary-storage-marker className="transport-temp-marker selectable" title="临时存储格：放入需支付4钱币" aria-label="放入临时存储格并支付4钱币" style={{ left: "88.9%", top: "12.0%", right: "auto", transform: "translate(-50%, -50%)" }} onClick={() => cargoPlacement.onSelectSlot(-1)}><i /></button> : <div data-temporary-storage-marker className="transport-temp-marker" title="临时存储格：每次放入货物支付4钱币" style={{ left: "88.9%", top: "12.0%", right: "auto", transform: "translate(-50%, -50%)" }}>{board.temporaryStorage && !storageFlightHides(-1, true) ? cargoGlyph(board.temporaryStorage) : <i />}</div>}
+      {!cartFlying && <div className="transport-cart-marker" style={{ left: `${cartLocation.left}%`, top: `${cartLocation.top}%` }} title={`马车位于${cartLocation.name}${board.cartBarrels > 0 ? `，装有 ${board.cartBarrels} 桶桶装酒` : '，未装载桶装酒'}`} aria-label={`马车位于${cartLocation.name}，装有${board.cartBarrels}桶桶装酒`}>{board.cartBarrels > 0 && <span className="cart-cargo-stack">{Array.from({ length: board.cartBarrels }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="桶装酒" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="马车" /></div>}
+      {board.breweryDeliveries.map((count, breweryIndex) => {
+        const routeIndex = 9 + breweryIndex, location = cartRoute[routeIndex];
+        const inFlight = pieceFlights.filter(flight => flight.kind === 'expansion-cargo' && flight.playerIndex === playerIndex && flight.cargoKind === 'barrel' && flight.targetRouteIndex === routeIndex).length;
+        const visibleCount = Math.max(0, count - inFlight);
+        return visibleCount > 0 ? <div key={`brewery-delivery-${breweryIndex}`} className="transport-brewery-delivery" style={{ left: `${Math.min(92, location.left + 20)}%`, top: `${location.top}%` }} title={`第 ${breweryIndex + 1} 酒馆已交付 ${count} 桶`} aria-label={`第 ${breweryIndex + 1} 酒馆已交付 ${count} 桶`}>{Array.from({ length: visibleCount }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}<b>×{count}</b></div> : null;
+      })}
+    </div>
+    {/* <div className="expansion-transport-summary"><span><img className="summary-cart-icon" src="/Images/cart_horse_icon.png" alt="马车" />{Array.from({ length: board.cartBarrels }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="桶装酒" />)}</span><span>已交付 <img src="/Images/barrel_cargo_icon.png" alt="" /> <b>{board.deliveredBarrels}</b></span><span>推车位置 <b>{cartLocation.name}</b></span></div> */}
+  </div>;
+}
 function renderLog(line: string, players: AleState['players']) {
   const turn = line.match(/^\[\[TURN:(\d+):(\d+)\]\]$/);
   if (turn) return `第 ${turn[1]} 轮 · 第 ${turn[2]} 回合`;
@@ -939,13 +1266,15 @@ function markerClusterOffset(index: number, count: number): [number, number] {
   };
   return (layouts[count] || [[0, 0]])[index] || [0, 0];
 }
-function Garden({ player, playerIndex, pieceFlights, activePlayer, selectedTile, sourceIndex, coins, canPlace, shedChoice, flightTileId, flightTargetIndex, flightScoreIndex, scoreTargetIndices, onScoreTarget, onShedToggle, onSelect, cells }: { player: any; playerIndex: number; pieceFlights: PieceFlight[]; activePlayer: any; selectedTile?: Tile; sourceIndex?: number; coins: number; canPlace: boolean; shedChoice?: ShedChoice; flightTileId?: string; flightTargetIndex?: number; flightScoreIndex?: number; scoreTargetIndices: number[]; onScoreTarget: (index: number) => void; onShedToggle: (n: number) => void; onSelect: (n: number) => void; cells: typeof gardenCells }) {
+function Garden({ player, playerIndex, pieceFlights, activePlayer, selectedTile, sourceIndex, coins, canPlace, shedChoice, flightTileId, flightTargetIndex, flightScoreIndex, scoreTargetIndices, onScoreTarget, onShedToggle, onSelect, cells, storeTiles, storeSetup = false, selectedStoreId, storeSetupReady = false, onStoreTarget }: { player: any; playerIndex: number; pieceFlights: PieceFlight[]; activePlayer: any; selectedTile?: Tile; sourceIndex?: number; coins: number; canPlace: boolean; shedChoice?: ShedChoice; flightTileId?: string; flightTargetIndex?: number; flightScoreIndex?: number; scoreTargetIndices: number[]; onScoreTarget: (index: number) => void; onShedToggle: (n: number) => void; onSelect: (n: number) => void; cells: typeof gardenCells; storeTiles?: (number | null)[]; storeSetup?: boolean; selectedStoreId?: number | null; storeSetupReady?: boolean; onStoreTarget?: (index: number, storeId?: number) => void }) {
   const markers = [...resources.map(resource => ({ key: resource, label: resourceLabels[resource], value: player.tracks[resource], color: resourceColors[resource] })), { key: 'brewer', label: '酿酒师', value: player.brewer, color: '#eee4c8' }];
   const markerGroups = new Map<number, typeof markers>();
   markers.forEach(marker => markerGroups.set(marker.value, [...(markerGroups.get(marker.value) || []), marker]));
+  let hutStoreSlot = 0;
+  const selectedStoreSlot = selectedStoreId ? storeTiles?.indexOf(selectedStoreId) ?? -1 : -1;
   const boardExtension = ['black', 'yellow', 'blue', 'red'].includes(player.color) ? 'jpg' : 'png';
-  return <div className={`garden-board ${canPlace ? 'placement-active' : ''} ${shedChoice ? 'shed-choice-active' : ''}`} data-player-board-index={playerIndex} style={{ backgroundImage: `url('/Images/board_${player.color}.${boardExtension}')` }}>{cells.map((g, i) => {
-    const cell = player.board[i], tile = cell?.tile as Tile | undefined, point = playerBoardPercent(g.x, g.z);
+  return <div className={`garden-board ${canPlace ? 'placement-active' : ''} ${shedChoice ? 'shed-choice-active' : ''} ${storeSetup ? 'store-setup-active' : ''}`} data-player-board-index={playerIndex} style={{ backgroundImage: `url('/Images/board_${player.color}.${boardExtension}')` }}>{cells.map((g, i) => {
+    const cell = player.board[i], tile = cell?.tile as Tile | undefined, point = playerBoardPercent(g.x, g.z), storeSlot = g.hut ? hutStoreSlot++ : -1, storeId = storeSlot >= 0 ? storeTiles?.[storeSlot] : undefined;
     const empty = !g.hut && !activePlayer.board[i]?.tile;
     const cost = selectedTile && g.side ? tileBaseCost(selectedTile, sourceIndex) * (g.side === 'sun' ? 2 : 1) : Infinity;
     const eligible = canPlace && empty && !!selectedTile && !!g.side && cost <= coins;
@@ -953,11 +1282,15 @@ function Garden({ player, playerIndex, pieceFlights, activePlayer, selectedTile,
     const shedCandidate = !!shedChoice?.candidates.includes(i);
     const shedTarget = shedCandidate && canSelectShedCell(shedChoice!, i);
     const shedUnavailable = shedCandidate && !shedTarget, shedSelected = !!shedChoice?.selected.includes(i);
+    const storeSource = !!storeSetup && !!g.hut && !storeSetupReady && !selectedStoreId && !!storeId;
+    const selectedStoreSource = !!storeSetup && !!g.hut && !storeSetupReady && !!selectedStoreId && selectedStoreSlot === storeSlot;
+    const storeTarget = !!storeSetup && !!g.hut && !storeSetupReady && !!selectedStoreId && !selectedStoreSource && (selectedStoreSlot >= 0 || !storeId);
     const shedProgress = g.hut ? shedProductionProgress(activePlayer.board, i) : null;
     const hasShedYield = !!shedProgress && !cell?.completed && shedProgress.filled > 0;
     const shownShedYield = cell?.shedValue ?? shedProgress?.value ?? 0;
-    const title = shedCandidate ? `${tile?.resource ? resourceLabels[tile.resource] : tile?.monk} · 棚屋奖励候选板块${shedSelected ? ' · 已选择' : shedUnavailable ? ' · 当前组合不符合规则' : ''}` : g.hut ? cell?.completed ? `已完成棚屋 · 产值 ${shedProgress?.value ?? 0} · 类型 ${cell.shedType}` : `棚屋位置：已放板块产值 ${shedProgress?.value ?? 0}（${shedProgress?.filled ?? 0}/6）` : `${g.row + 1} 行 · ${g.side === 'sun' ? '向阳' : '阴凉'}${eligible ? ` · ${cost}个钱币 · 点击放置` : ''}`;
-    return <button key={i} data-garden-index={i} onClick={() => shedTarget ? onShedToggle(i) : eligible && onSelect(i)} disabled={!eligible && !shedTarget} className={`garden-cell ${g.side || ''} ${g.hut ? 'hut-cell' : ''} ${eligible ? 'eligible' : ''} ${hiddenCandidate ? 'hidden-candidate' : ''} ${tile ? 'filled' : ''} ${cell?.completed ? 'completed' : ''} ${shedTarget ? 'shed-target' : ''} ${shedUnavailable ? 'shed-unavailable' : ''} ${shedSelected ? 'shed-selected' : ''}`} style={{ left: `${point.left}%`, top: `${point.top}%` }} title={title}>{g.hut ? <>{cell?.completed && <img className="shed-image" src={`/Images/shed_tile_${cell.shedType}.png`} alt="棚屋奖励" />}{hasShedYield && <span className="hut-yield-badge" aria-label={`棚屋周围产值 ${shownShedYield}`}>{shownShedYield}</span>}</> : tile ? (flightTargetIndex === i && tile.id === flightTileId ? null : <TileFace tile={tile} />) : <span className="plus">{eligible ? `${cost}` : ''}</span>}{shedSelected && <span className="shed-check" aria-label="已选择激活">✓</span>}</button>;
+    const title = storeTarget ? '点击在此棚屋放置或互换存储板块' : shedCandidate ? `${tile?.resource ? resourceLabels[tile.resource] : tile?.monk} · 棚屋奖励候选板块${shedSelected ? ' · 已选择' : shedUnavailable ? ' · 当前组合不符合规则' : ''}` : g.hut ? cell?.completed ? `已完成棚屋 · 产值 ${shedProgress?.value ?? 0} · 类型 ${cell.shedType}` : `棚屋位置：已放板块产值 ${shedProgress?.value ?? 0}（${shedProgress?.filled ?? 0}/6）` : `${g.row + 1} 行 · ${g.side === 'sun' ? '向阳' : '阴凉'}${eligible ? ` · ${cost}个钱币 · 点击放置` : ''}`;
+    const storeCardFlying = !!storeId && pieceFlights.some(flight => flight.kind === 'store-card' && flight.playerIndex === playerIndex && flight.storeId === storeId && (flight.targetIndex === i || flight.sourceIndex === i));
+    return <button key={i} data-garden-index={i} onClick={() => storeSetup ? (storeTarget || storeSource || selectedStoreSource) && onStoreTarget?.(i, storeId ?? undefined) : shedTarget ? onShedToggle(i) : eligible && onSelect(i)} disabled={storeSetup ? !(storeTarget || storeSource || selectedStoreSource) : !eligible && !shedTarget} className={`garden-cell ${g.side || ''} ${g.hut ? 'hut-cell' : ''} ${eligible ? 'eligible' : ''} ${hiddenCandidate ? 'hidden-candidate' : ''} ${tile ? 'filled' : ''} ${cell?.completed ? 'completed' : ''} ${shedTarget ? 'shed-target' : ''} ${shedUnavailable ? 'shed-unavailable' : ''} ${shedSelected ? 'shed-selected' : ''} ${storeTarget ? 'store-target' : ''} ${selectedStoreSource ? 'store-source-selected' : ''}`} style={{ left: `${point.left}%`, top: `${point.top}%` }} title={storeSetup && storeSource ? '点击选择此存储板块' : storeSetup && selectedStoreSource ? '再次点击取消选择' : title}>{g.hut ? <>{cell?.completed && <img className="shed-image" src={`/Images/shed_tile_${cell.shedType}.png`} alt="棚屋奖励" />}{!cell?.completed && storeId && !storeCardFlying && <img className="expansion-hut-store" src={`/Images/store_${storeId}.png`} alt="存储板块" />}{hasShedYield && <span className="hut-yield-badge" aria-label={`棚屋周围产值 ${shownShedYield}`}>{shownShedYield}</span>}</> : tile ? (flightTargetIndex === i && tile.id === flightTileId ? null : <TileFace tile={tile} />) : <span className="plus">{eligible ? `${cost}` : ''}</span>}{shedSelected && <span className="shed-check" aria-label="已选择激活">✓</span>}</button>;
   })}{markers.map(marker => {
     const pos = productionTrackPositions[marker.value]; if (!pos) return null;
     const group = markerGroups.get(marker.value)!, offset = markerClusterOffset(group.indexOf(marker), group.length);

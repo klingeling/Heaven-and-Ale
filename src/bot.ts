@@ -1,8 +1,9 @@
 import {
-  availableBarrelIds, canBuyFrom, canMoveTo, canScore, canSelectShedCell, gardenCells, lowestResources,
+  availableBarrelIds, canBuyFrom, canMoveTo, canScore, canSelectShedCell, canTakeExpansionCargo, gardenCells, lowestResources,
   monkNames, resources, scoreBreakdown, scoreChoices, shedProductionProgress, tileBaseCost,
   validShedSelection, type AleState, type PlayerState, type Resource, type ShedChoice, type Tile,
 } from './game';
+import { emptyExpansionStorageSlots, storedCargoCount, validCartLoadChoices, type ExpansionCargo } from './expansion';
 
 export type BotDifficulty = 'normal' | 'expert';
 export type BotMove = { name: string; args: unknown[] };
@@ -260,9 +261,22 @@ function bestScore(p: PlayerState, G: AleState, scoreType: 'A' | 'B' | 'C' | 'AB
 
 function actionValue(G: AleState, p: PlayerState, index: number, difficulty: BotDifficulty) {
   const space = G.track[index];
+  let extensionValue = 0;
+  if (G.expansionEnabled && G.expansion) {
+    const expansion = G.expansion, playerIndex = G.players.indexOf(p), board = expansion.players[playerIndex];
+    const pile = expansion.cargoByTrackSpace[index] ?? [];
+    if (canTakeExpansionCargo(G, p, index) && board) {
+      const capacity = emptyExpansionStorageSlots(board).length + Number(!board.temporaryStorage && p.coins >= 4);
+      const barrels = Math.min(capacity, pile.filter(item => item === 'barrel').length);
+      const straw = Math.min(Math.max(0, capacity - barrels), pile.filter(item => item === 'straw').length);
+      extensionValue += barrels * (board.cartBarrels || storedCargoCount(board, 'straw') ? 2.5 : 1.4) + straw * (storedCargoCount(board, 'barrel') || barrels ? 1.8 : .9);
+    }
+    if (board && expansion.cartDieSpace === index && validCartLoadChoices(board, expansion.cartDieValue + board.cartStepBonus).length)
+      extensionValue += 2.2 + Math.min(3, board.cartBarrels + storedCargoCount(board, 'barrel')) * .8;
+  }
   if (space.type === 'resource' || space.type === 'monk') {
     const market = space.type === 'resource' ? G.resources[space.sourceIndex ?? -1] || [] : G.monks[space.sourceIndex ?? -1] || [];
-    if (!market.length || !canBuyFrom(p, market, space.sourceIndex)) return null;
+    if (!market.length || !canBuyFrom(p, market, space.sourceIndex)) return extensionValue > 0 ? extensionValue : null;
     const hypothetical = clonePlayer(p), supply = [...market];
     let total = 0, purchases = 0;
     while (supply.length) {
@@ -279,19 +293,19 @@ function actionValue(G: AleState, p: PlayerState, index: number, difficulty: Bot
       supply.splice(supply.findIndex(t => t.id === best.tile.id), 1);
       purchases++;
     }
-    return purchases ? 1.15 + total : null;
+    return purchases ? 1.15 + total + extensionValue : extensionValue > 0 ? extensionValue : null;
   }
   if (space.type === 'score') {
     if (!G.scores[space.sourceIndex ?? -1] || !canScore(p, space.scoreType)) return null;
-    return 1.05 + (bestScore(p, G, space.scoreType || 'ABC', difficulty)?.value || 0) + Math.min(Math.max(0,12-p.coins),reachableIncome(G,p,index))*.35;
+    return 1.05 + (bestScore(p, G, space.scoreType || 'ABC', difficulty)?.value || 0) + Math.min(Math.max(0,12-p.coins),reachableIncome(G,p,index))*.35 + extensionValue;
   }
   if (space.type === 'barrel') {
     const ids = availableBarrelIds(G, p);
     if (!ids.length) return null;
     const points = ids.reduce((sum, id) => sum + ((G.barrels.find(b => b.id === id)?.remaining ?? 1) === 2 ? 4 : 2), 0);
-    return 1.5 + points * .55;
+    return 1.5 + points * .55 + extensionValue;
   }
-  return space.type === 'start' ? -100 : null;
+  return space.type === 'start' ? -100 : extensionValue > 0 ? extensionValue : null;
 }
 
 function chooseCellForShed(choice: ShedChoice, p: PlayerState, G: AleState) {
@@ -315,11 +329,61 @@ function chooseCellForShed(choice: ShedChoice, p: PlayerState, G: AleState) {
 export function chooseBotMove(G: AleState, currentPlayer: string, difficulty: BotDifficulty): BotMove | null {
   const player = G.players[Number(currentPlayer)];
   if (!player || G.phase === 'finished') return null;
+  // Setup placements are rejected while the preceding start choice is awaiting confirmation.
+  // Resolve confirmations first so expansion setup bots cannot repeatedly submit an ignored move.
+  if (G.confirmationKind) return { name: 'confirmAction', args: [] };
+  if (G.phase === 'setup' && G.setupStage === 'expansion-stores' && G.expansion) {
+    const board = G.expansion.players[Number(currentPlayer)];
+    if (!board || G.expansion.storeSetupReady[Number(currentPlayer)]) return null;
+    const huts = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+    const emptySlot = board.hutStoreTiles.findIndex(tile => tile === null);
+    if (emptySlot >= 0) {
+      const used = new Set(board.hutStoreTiles.filter((tile): tile is number => tile !== null));
+      const nextTile = Array.from({ length: 7 }, (_, i) => i + 1).find(tile => !used.has(tile));
+      return nextTile === undefined ? null : { name: 'assignExpansionStoreTile', args: [huts[emptySlot], nextTile] };
+    }
+    return { name: 'finishExpansionStoreSetup', args: [] };
+  }
+  if (G.expansion?.storePrompts?.[0]?.playerIndex === Number(currentPlayer)) {
+    const prompt = G.expansion.storePrompts[0], board = G.expansion.players[Number(currentPlayer)];
+    if (prompt.tileId === 7) {
+      const empty = emptyExpansionStorageSlots(board).length;
+      const cargo: ExpansionCargo[] = [];
+      if (empty > 0 && G.expansion.barrelSupply > 0) cargo.push('barrel');
+      if (empty > cargo.length && G.expansion.strawSupply > 0) cargo.push('straw');
+      return cargo.length ? { name: 'resolveExpansionStore', args: ['front', cargo] } : { name: 'resolveExpansionStore', args: ['back'] };
+    }
+    if (prompt.tileId === 3 || prompt.tileId === 4) {
+      const score = prompt.tileId === 3 ? 5 : 6;
+      const targets = [0, 1].filter(index => !(board.breweryUpgradeTiles ?? [null, null])[index]);
+      targets.sort((a, b) => (score - board.breweryScores[b]) - (score - board.breweryScores[a]));
+      if (targets.length) return { name: 'resolveExpansionStore', args: ['front', [], [], targets[0]] };
+      return { name: 'resolveExpansionStore', args: ['back'] };
+    }
+    if ((prompt.tileId === 5 || prompt.tileId === 6) && !validCartLoadChoices(board, prompt.tileId === 5 ? 4 : 6).length)
+      return { name: 'resolveExpansionStore', args: ['back'] };
+    return { name: 'resolveExpansionStore', args: ['front'] };
+  }
+  if (G.expansion?.cartMovement && G.expansion.cartMovement.nextLocation >= 0 && G.expansion.cartMovement.playerIndex === Number(currentPlayer)) {
+    const choices = G.expansion.cartMovement.loadChoices;
+    const load = Math.max(...choices);
+    return { name: 'chooseExpansionCartLoad', args: [load] };
+  }
+  if (G.pending?.player === currentPlayer && G.pending.baseDone && G.pending.cargoDone === false && G.expansion) {
+    const board = G.expansion.players[Number(currentPlayer)], pile = G.expansion.cargoByTrackSpace[G.pending.space] ?? [];
+    const kinds: ExpansionCargo[] = [...new Set(pile)];
+    kinds.sort((a, b) => storedCargoCount(board, a) - storedCargoCount(board, b));
+    const slot = emptyExpansionStorageSlots(board)[0];
+    if (slot !== undefined && kinds.length) return { name: 'takeExpansionCargo', args: [kinds[0], slot] };
+    if (slot === undefined && !board.temporaryStorage && player.coins >= 4 && kinds.length) return { name: 'takeExpansionCargo', args: [kinds[0], -1] };
+    return { name: 'finishExpansionCargo', args: [] };
+  }
+  if (G.pending?.player === currentPlayer && G.pending.baseDone && G.pending.cargoDone && G.pending.cartDone === false)
+    return { name: 'useExpansionCart', args: [] };
   if (G.startChoice) {
     const resource = bestTrackResource(player, resources, 2, G.round, G.maxRounds);
     return { name: 'chooseStartResource', args: [resource] };
   }
-  if (G.confirmationKind) return { name: 'confirmAction', args: [] };
   if (G.shedChoices.length) {
     const choice = G.shedChoices[0];
     if (validShedSelection(choice)) return { name: 'completeShedChoice', args: [] };
@@ -405,8 +469,20 @@ export function searchMoves(G: AleState, playerID: string, fast = false): BotMov
   const free = G.phase === 'play' && !G.pending && !G.startChoice && !G.confirmationKind && !G.shedChoices.length && !G.privilegePrompts.length;
   const preferred = fast && free ? null : chooseBotMove(G, playerID, 'expert');
   if (!preferred && !free) return [];
+  if (G.confirmationKind || (G.expansion?.storePrompts?.length ?? 0) > 0 || (G.expansion?.cartMovement?.nextLocation ?? -1) >= 0 || G.pending?.baseDone)
+    return preferred ? [preferred] : [];
   let alternatives: BotMove[] = [];
-  if (G.startChoice) alternatives = resources.map(r => ({ name: 'chooseStartResource', args: [r] }));
+  if (G.phase === 'setup' && G.setupStage === 'expansion-stores' && G.expansion) {
+    const board = G.expansion.players[Number(playerID)];
+    if (board && !G.expansion.storeSetupReady[Number(playerID)]) {
+      const huts = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+      const used = new Set(board.hutStoreTiles.filter((tile): tile is number => tile !== null));
+      const emptySlots = board.hutStoreTiles.flatMap((tile, index) => tile === null ? [index] : []);
+      alternatives = emptySlots.length
+        ? emptySlots.flatMap(slot => Array.from({ length: 7 }, (_, i) => i + 1).filter(tile => !used.has(tile)).map(tile => ({ name: 'assignExpansionStoreTile', args: [huts[slot], tile] })))
+        : [{ name: 'finishExpansionStoreSetup', args: [] }];
+    }
+  } else if (G.startChoice) alternatives = resources.map(r => ({ name: 'chooseStartResource', args: [r] }));
   else if (G.confirmationKind) return preferred ? [preferred] : [];
   else if (G.shedChoices.length) {
     const choice = G.shedChoices[0];
@@ -446,8 +522,9 @@ export function searchMoves(G: AleState, playerID: string, fast = false): BotMov
 }
 export function searchValue(G: AleState, player: number) {
   const p = G.players[player];
-  if (G.phase === 'finished' || (p.retired && G.round === G.maxRounds)) return scoreBreakdown(p).total;
-  return evaluate(p, G.round, G.maxRounds) - economyRisk(G, player);
+  if (G.phase === 'finished' || (p.retired && G.round === G.maxRounds)) return scoreBreakdown(p, G.expansionEnabled ? G.expansion?.players[player] : undefined).total;
+  const expansionValue = G.expansionEnabled ? scoreBreakdown(p, G.expansion?.players[player]).expansionBarrelScore : 0;
+  return evaluate(p, G.round, G.maxRounds) + expansionValue - economyRisk(G, player);
 }
 
 

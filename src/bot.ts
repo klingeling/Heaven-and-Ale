@@ -483,7 +483,7 @@ export function chooseBotMove(G: AleState, currentPlayer: string, difficulty: Bo
   if (!player || G.phase === 'finished') return null;
   // Setup placements are rejected while the preceding start choice is awaiting confirmation.
   // Resolve confirmations first so expansion setup bots cannot repeatedly submit an ignored move.
-  if (G.confirmationKind) return { name: 'confirmAction', args: [] };
+  if (G.confirmationKind && !G.privilegePrompts.length) return { name: 'confirmAction', args: [] };
   if (G.phase === 'setup' && G.setupStage === 'expansion-stores' && G.expansion) {
     const board = G.expansion.players[Number(currentPlayer)];
     if (!board || G.expansion.storeSetupReady[Number(currentPlayer)]) return null;
@@ -530,6 +530,7 @@ export function chooseBotMove(G: AleState, currentPlayer: string, difficulty: Bo
   }
   if (G.privilegePrompts.length) {
     const prompt = G.privilegePrompts[0];
+    if (prompt.playerIndex !== undefined && prompt.playerIndex !== Number(currentPlayer)) return null;
     const cards = player.privileges.filter(card => card !== 'A' || player.board.some(cell => !!cell.tile?.resource)).sort((a, b) =>
       privilegeGain(player, b, prompt.pairIndex, G.round, G.maxRounds, G) - privilegeGain(player, a, prompt.pairIndex, G.round, G.maxRounds, G));
     const card = cards[0];

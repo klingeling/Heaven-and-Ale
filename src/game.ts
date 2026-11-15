@@ -12,7 +12,7 @@ export type PlayerState = {
 };
 export type ActionSpace = { type: 'resource' | 'monk' | 'score' | 'barrel' | 'start'; label: string; scoreType?: 'A' | 'B' | 'C' | 'ABC'; sourceIndex?: number; x: number; y: number };
 export type ShedChoice = { hutIndex: number; value: number; brewerAdvance: number; activateCount: number; mode: 'one' | 'opposite' | 'nonAdjacent' | 'any'; candidates: number[]; selected: number[] };
-export type PrivilegePrompt = { kind: 'pair'; pairIndex: number };
+export type PrivilegePrompt = { kind: 'pair'; pairIndex: number; playerIndex?: number };
 export type AleState = {
   players: PlayerState[]; round: number; maxRounds: number; track: ActionSpace[]; resources: Tile[][]; monks: Tile[][];
   /** The expansion is opt-in; false leaves the base game state and rules unchanged. */
@@ -587,7 +587,7 @@ export const HeavenAle: Game<AleState> = {
       const discIndex = choice === 'A' ? 0 : choice === 'C' ? 1 + resources.indexOf(option as Resource) : 6 + monkNames.indexOf(String(option));
       const pairIndex = Math.floor(discIndex / 2), occupied = new Set(scoreDiscIndexes(p));
       if (p.privilegePairs[pairIndex] === null && occupied.has(pairIndex * 2) && occupied.has(pairIndex * 2 + 1)) {
-        G.privilegePrompts.push({ kind: 'pair', pairIndex });
+        G.privilegePrompts.push({ kind: 'pair', pairIndex, playerIndex: Number(ctx.currentPlayer) });
         G.log.unshift(`${p.name} 完成第 ${pairIndex + 1} 组计分标记，请放置一张特权卡或永久跳过。`);
       }
       if (pending.cargoDone !== undefined || pending.cartDone !== undefined) {
@@ -629,7 +629,7 @@ export const HeavenAle: Game<AleState> = {
     },
     choosePrivilege: ({ G, ctx }, card: string, choice?: Resource) => {
       const p = G.players[Number(ctx.currentPlayer)], prompt = G.privilegePrompts[0];
-      if (G.confirmationKind || !prompt || !p) return;
+      if ((G.confirmationKind && G.confirmationKind !== 'turn') || !prompt || !p || (prompt.playerIndex !== undefined && prompt.playerIndex !== Number(ctx.currentPlayer))) return;
       if (prompt.kind === 'pair' && card === 'skip') {
         saveStepSnapshot(G);
         p.privilegePairs[prompt.pairIndex] = 'skip';
@@ -689,7 +689,7 @@ export const HeavenAle: Game<AleState> = {
       G.stepUndoSnapshots = history;
     },
     confirmAction: ({ G, ctx, events, random }) => {
-      if (!G.confirmationKind || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.expansion?.cartMovement) return;
+      if (!G.confirmationKind || G.privilegePrompts.length > 0 || G.shedChoices.length > 0 || G.startChoice || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.expansion?.cartMovement) return;
       const kind = G.confirmationKind;
       // A missing undo snapshot should disable undo, not strand a valid
       // confirmation forever. This can occur in older/restored local saves.
@@ -927,7 +927,7 @@ function finishExpansionActionIfReady(G: AleState) {
   if (pending.cargoDone === undefined && pending.cartDone === undefined) return;
   const kind = pending.type;
   G.pending = null;
-  G.confirmationKind = kind === 'start' ? 'return' : 'turn';
+  G.confirmationKind = kind === 'start' ? 'return' : G.privilegePrompts.length ? null : 'turn';
 }
 function advanceExpansionCart(G: AleState) {
   const expansion = G.expansion, movement = expansion?.cartMovement, pending = G.pending;

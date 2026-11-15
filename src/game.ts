@@ -235,6 +235,10 @@ export const HeavenAle: Game<AleState> = {
         }
       }
       if (G.firstTurnAfterSetup) G.firstTurnAfterSetup = false;
+      // Recover safely if a stale or partially restored state reaches the
+      // start of a turn with every player already retired. Without this,
+      // auto-skipping retired seats can repeatedly call onBegin forever.
+      if (G.phase === 'play' && G.players.every(player => player.retired)) finishRound(G);
       if (G.phase === 'play' && !G.players[Number(ctx.currentPlayer)]?.retired) {
         const cycle = G.logCycle;
         if (!cycle || cycle.round !== G.round || G.players.every((p, i) => p.retired || cycle.players.includes(i))) {
@@ -685,8 +689,11 @@ export const HeavenAle: Game<AleState> = {
       G.stepUndoSnapshots = history;
     },
     confirmAction: ({ G, ctx, events, random }) => {
-      if (!G.undoSnapshot || !G.confirmationKind || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.expansion?.cartMovement) return;
+      if (!G.confirmationKind || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.expansion?.cartMovement) return;
       const kind = G.confirmationKind;
+      // A missing undo snapshot should disable undo, not strand a valid
+      // confirmation forever. This can occur in older/restored local saves.
+      if (!G.undoSnapshot) G.log.unshift('对局恢复提示：确认行动时缺少撤回快照，已继续结算。');
       G.undoSnapshot = null; G.stepUndoSnapshots = []; G.confirmationKind = null;
       if (G.phase === 'setup' && G.setupStage === 'expansion-stores' && kind === 'setup' && G.expansion?.storeSetupReady.every(Boolean)) {
         initializeFirstExpansionRound(G.expansion, G.track.length - 1, random.Die(6));

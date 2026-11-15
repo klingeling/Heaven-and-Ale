@@ -416,6 +416,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
         expansionPlayers: liveGame?.expansion?.players?.map((board, seat) => ({ seat, cartPosition: board.cartPosition, cartBarrels: board.cartBarrels, deliveredBarrels: board.deliveredBarrels, breweryDeliveries: board.breweryDeliveries })),
       },
       G: liveGame,
+      actionHistory: (client as any).log ?? null,
       botSearch: {
         local: botSearchStatus,
         shared: sharedBotSearches,

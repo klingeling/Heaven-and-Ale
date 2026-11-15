@@ -164,8 +164,34 @@ const makeDeck = (G: AleState, random: { Shuffle<T>(items: T[]): T[] }, rounds: 
   G.monks = Array.from({ length: 4 }, (_, i) => [G.monkDecks[0][i]]);
 };
 
+function redactExpansionStoreSetup(G: AleState, playerID: string | null): AleState {
+  if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion || G.expansion.storeSetupReady.every(Boolean)) return G;
+  const viewer = playerID === null ? -1 : Number(playerID);
+  const sanitize = (state: any, depth = 0): any => {
+    if (!state || typeof state !== 'object' || depth > 3) return state;
+    const expansion = state.expansion;
+    const maskedExpansion = expansion ? {
+      ...expansion,
+      players: expansion.players?.map((board: any, index: number) => index === viewer ? board : { ...board, hutStoreTiles: Array(7).fill(null) }),
+    } : expansion;
+    const sanitizeSnapshot = (value: unknown) => {
+      if (typeof value !== 'string') return value;
+      try { return JSON.stringify(sanitize(JSON.parse(value), depth + 1)); }
+      catch { return value; }
+    };
+    return {
+      ...state,
+      expansion: maskedExpansion,
+      undoSnapshot: sanitizeSnapshot(state.undoSnapshot),
+      stepUndoSnapshots: Array.isArray(state.stepUndoSnapshots) ? state.stepUndoSnapshots.map(sanitizeSnapshot) : state.stepUndoSnapshots,
+    };
+  };
+  return sanitize(G) as AleState;
+}
+
 export const HeavenAle: Game<AleState> = {
   name: 'heaven-and-ale',
+  playerView: ({ G, playerID }) => redactExpansionStoreSetup(G, playerID ?? null),
   setup: ({ ctx, random }, setupData?: { expansionEnabled?: boolean }) => {
     const count = Math.max(2, Math.min(4, ctx.numPlayers));
     const players = Array.from({ length: count }, (_, i) => emptyPlayer(i, playerColors[i]));
@@ -298,7 +324,7 @@ export const HeavenAle: Game<AleState> = {
       }
       G.confirmationKind = choice.mode === 'setup' ? 'setup' : G.pending?.type === 'start' ? null : 'return';
     },
-    assignExpansionStoreTile: ({ G, ctx }, hutIndex: number, tileId: number, pairedHutIndex?: number, pairedTileId?: number) => {
+    assignExpansionStoreTile: { move: ({ G, ctx }, hutIndex: number, tileId: number, pairedHutIndex?: number, pairedTileId?: number) => {
       const playerIndex = Number(ctx.currentPlayer), board = G.expansion?.players[playerIndex];
       if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion || !board || G.confirmationKind || G.expansion.storeSetupReady[playerIndex]) return;
       const hutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
@@ -318,8 +344,8 @@ export const HeavenAle: Game<AleState> = {
       if (previousSlot >= 0 && previousSlot !== storeSlot) board.hutStoreTiles[previousSlot] = board.hutStoreTiles[storeSlot];
       board.hutStoreTiles[storeSlot] = tileId;
       if (hasPairedAssignment) board.hutStoreTiles[pairedSlot] = pairedTileId!;
-    },
-    placeRemainingExpansionStoreTiles: ({ G, ctx }, tileIds: number[]) => {
+    }, redact: true },
+    placeRemainingExpansionStoreTiles: { move: ({ G, ctx }, tileIds: number[]) => {
       const playerIndex = Number(ctx.currentPlayer), board = G.expansion?.players[playerIndex];
       if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion || !board || G.confirmationKind || G.expansion.storeSetupReady[playerIndex] || !Array.isArray(tileIds)) return;
       const hutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
@@ -329,7 +355,7 @@ export const HeavenAle: Game<AleState> = {
       saveActionSnapshot(G); saveStepSnapshot(G);
       emptySlots.forEach((slot, index) => { board.hutStoreTiles[slot] = tileIds[index]; });
       G.log.unshift(`${G.players[playerIndex].name} 随机放置了剩余的 ${tileIds.length} 个存储板块。`);
-    },
+    }, redact: true },
     finishExpansionStoreSetup: ({ G, ctx }) => {
       const playerIndex = Number(ctx.currentPlayer), board = G.expansion?.players[playerIndex];
       if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion || !board || G.confirmationKind || G.expansion.storeSetupReady[playerIndex] || board.hutStoreTiles.some(id => id === null)) return;

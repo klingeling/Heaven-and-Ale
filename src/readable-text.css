@@ -95,6 +95,24 @@
   .track-space small{font-size:7px}
 }
 
+@media(max-width:780px){
+  .far-right-rail .player-roster{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));align-items:stretch;gap:6px}
+}
+@media(max-width:560px){
+  .far-right-rail .player-card{gap:6px;padding:7px 8px}
+  .far-right-rail .player-name{flex:1;min-width:0}
+  .player-name-score{flex-wrap:wrap;gap:3px 6px;white-space:normal}
+  .player-name-score>span:first-child{min-width:0;overflow-wrap:anywhere}
+  .far-right-rail .player-name small{white-space:normal;line-height:1.3}
+  .far-right-rail .player-live-details{padding:5px}
+  .resource-icon-row>span{height:32px}
+  .player-board-resource{width:18px;height:23px}
+  .player-metric-combined-row>span{height:28px;gap:1px}
+  .player-info-brewer{width:16px;height:21px}
+  .player-info-beer{width:17px;height:21px}
+  .player-info-barrel{width:16px;height:21px}
+}
+
 /* Keep the landing artwork anchored to the viewport while seat options expand or collapse. */
 .landing-image{position:fixed}
 

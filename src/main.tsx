@@ -37,36 +37,37 @@ function liveScoreTitle(player: AleState['players'][number], scoring: ReturnType
   lines.push(`起始玩家奖励：${scoring.startBonus} 分`, `合计：${scoring.total} 分`);
   return lines.join('\n');
 }
-function GameOverScoreModal({ game, gameover, winnerNames, onExit }: { game: AleState; gameover: any; winnerNames: string[]; onExit: () => void }) {
+function GameOverScoreModal({ game, gameover, winnerNames, onExit, onClose }: { game: AleState; gameover: any; winnerNames: string[]; onExit: () => void; onClose: () => void }) {
   const players = game.players.map((player, index) => {
     const expansion = game.expansionEnabled ? game.expansion?.players[index] : undefined;
     return { player, expansion, scoring: scoreBreakdown(player, expansion) };
   });
   const fmt = (value: number) => Number.isInteger(value) ? String(value) : value.toFixed(1);
-  const row = (label: string, values: string[], className = '') => ({ label, values, className });
+  const icon = (kind: string, badge?: string) => <span className={`score-sheet-icon ${kind}`} aria-hidden="true">{badge && <b>{badge}</b>}</span>;
+  const row = (label: string, symbol: React.ReactNode, values: string[], className = '') => ({ label, symbol, values, className });
   const rows = [
-    row('归并后的最低资源格', players.map(({ scoring }) => fmt(scoring.minResource))),
-    row('酿酒师胜利倍率', players.map(({ scoring }) => `×${scoring.victoryPoints}`)),
-    row('生产得分', players.map(({ scoring }) => `${fmt(scoring.minResource)} × ${scoring.victoryPoints} = ${fmt(scoring.productionScore)}`), 'score-row-highlight'),
-    row('大酒桶（每个 4 分）', players.map(({ player }) => { const count = player.claimedBarrels.filter(barrel => barrel.size === 'large').length; return `${count} × 4 = ${count * 4}`; })),
-    row('小酒桶（每个 2 分）', players.map(({ player }) => { const count = player.claimedBarrels.filter(barrel => barrel.size === 'small').length; return `${count} × 2 = ${count * 2}`; })),
-    row('酒桶特权卡（每桶 +1 分）', players.map(({ player }) => player.privilegePairs.includes('C') ? `${player.claimedBarrels.length} × 1 = ${player.claimedBarrels.length}` : '0')),
-    row('起始玩家奖励', players.map(({ player }) => player.startSlot === 0 ? '+1' : '0')),
+    row('基数', icon('resource'), players.map(({ scoring }) => fmt(scoring.minResource))),
+    row('倍率', icon('brewer'), players.map(({ scoring }) => `×${scoring.victoryPoints}`)),
+    row('酿造', icon('beer'), players.map(({ scoring }) => `${fmt(scoring.productionScore)}`), 'score-row-highlight'),
+    row('大桶', icon('barrel', '4'), players.map(({ player }) => { const count = player.claimedBarrels.filter(barrel => barrel.size === 'large').length; return `${count} × 4 = ${count * 4}`; })),
+    row('小桶', icon('barrel small', '2'), players.map(({ player }) => { const count = player.claimedBarrels.filter(barrel => barrel.size === 'small').length; return `${count} × 2 = ${count * 2}`; })),
+    row('桶特权', <img className="score-sheet-icon privilege" src="/Images/privilege_card_front_C.png" alt="" />, players.map(({ player }) => player.privilegePairs.includes('C') ? `+${player.claimedBarrels.length}` : '—')),
+    row('先手', icon('first-player', '+1'), players.map(({ player }) => player.startSlot === 0 ? '+1' : '—')),
   ];
   if (game.expansionEnabled) {
     rows.push(
-      row('酒馆交付得分', players.map(({ expansion }) => expansion ? `${expansion.breweryDeliveries.reduce((sum, count, index) => sum + count * expansion.breweryScores[index], 0)}` : '0')),
-      row('马车上未交付的桶装酒', players.map(({ expansion }) => { if (!expansion) return '0'; const count = expansion.cartBarrels, locationScore = cartRoute[expansion.cartPosition]?.score ?? 0; return `${count} × ${locationScore} = ${count * locationScore}`; })),
-      row('存储格中的桶装酒', players.map(({ expansion }) => { const count = expansion ? storedCargoCount(expansion, 'barrel') : 0; return `${count} × 0.5 = ${fmt(count * 0.5)}`; })),
+      row('交付', icon('barrel'), players.map(({ expansion }) => expansion ? fmt(expansion.breweryDeliveries.reduce((sum, count, index) => sum + count * expansion.breweryScores[index], 0)) : '0'), 'score-expansion-row'),
+      row('马车', icon('cart'), players.map(({ expansion }) => { if (!expansion) return '0'; const count = expansion.cartBarrels, locationScore = cartRoute[expansion.cartPosition]?.score ?? 0; return `${count} × ${locationScore} = ${count * locationScore}`; }), 'score-expansion-row'),
+      row('存储', icon('storage'), players.map(({ expansion }) => { const count = expansion ? storedCargoCount(expansion, 'barrel') : 0; return `${count} × 0.5 = ${fmt(count * 0.5)}`; }), 'score-expansion-row'),
     );
   }
-  return <div className="modal-backdrop game-score-backdrop"><section className="game-score-modal" role="dialog" aria-modal="true" aria-labelledby="final-score-title" tabIndex={-1}>
-    <header className="game-score-header"><span className="eyebrow">FINAL SCORING</span><h2 id="final-score-title">天堂与美酒 · 最终计分</h2><p>{gameover?.draw ? `平分，共享胜利：${winnerNames.join('、')}` : `获胜者：${winnerNames.join('、')}`}</p></header>
+  return <div className="modal-backdrop game-score-backdrop" onClick={onClose}><section className="game-score-modal" role="dialog" aria-modal="true" aria-labelledby="final-score-title" tabIndex={-1} onClick={event => event.stopPropagation()}>
+    <header className="game-score-header"><button type="button" className="score-modal-close" aria-label="关闭计分表" onClick={onClose}>×</button><span className="eyebrow">终局计分</span><h2 id="final-score-title">天堂与美酒 · 最终计分</h2><p>{gameover?.draw ? `平分，共享胜利：${winnerNames.join('、')}` : `获胜者：${winnerNames.join('、')}`}</p></header>
     <div className="game-score-table-wrap"><table className="game-score-table"><thead><tr><th>计分项目</th>{players.map(({ player }) => <th key={player.name}>{player.name}</th>)}</tr></thead><tbody>
-      {rows.map(({ label, values, className }) => <tr className={className} key={label}><th scope="row">{label}</th>{values.map((value, index) => <td key={index}>{value}</td>)}</tr>)}
+      {rows.map(({ label, symbol, values, className }) => <tr className={className} key={label}><th scope="row"><span className="score-sheet-row-label">{symbol}<span>{label}</span></span></th>{values.map((value, index) => <td key={index}>{value}</td>)}</tr>)}
       <tr className="score-total-row"><th scope="row">总分</th>{players.map(({ scoring }, index) => <td key={index}>{gameover?.scores?.[index] ?? scoring.total}</td>)}</tr>
     </tbody></table></div>
-    <footer className="game-score-footer"><span>{game.expansionEnabled ? '基础游戏 + 扩展得分' : '基础游戏得分'}</span><button className="btn btn-gold" onClick={onExit}>回到主页</button></footer>
+    <footer className="game-score-footer"><span>{game.expansionEnabled ? '基础游戏 + 扩展' : '基础游戏'}</span><button className="btn btn-outline" onClick={onClose}>查看终局盘面</button><button className="btn btn-gold" onClick={onExit}>回到主页</button></footer>
   </section></div>;
 }
 const localSaveKey = 'heaven-and-ale-local-session-v1';
@@ -501,6 +502,8 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const [showRules, setShowRules] = useState(false);
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
   const [showUnstoredCargoPrompt, setShowUnstoredCargoPrompt] = useState(false);
+  const [showFinalScore, setShowFinalScore] = useState(() => state.G.phase === 'finished');
+  useEffect(() => { if (G.phase === 'finished') setShowFinalScore(true); }, [G.phase]);
   const [toast, setToast] = useState('');
   const [botSearchStatus, setBotSearchStatus] = useState<{ playerID: number; iterations: number } | null>(null);
   const onBotSearchUpdateRef = React.useRef(onBotSearchUpdate);
@@ -1149,10 +1152,10 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />}
     {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />)}
     {pieceFlights.map(flight => <div key={flight.id} className={`tile-flight ${flight.started ? 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, backgroundPosition: flight.kind === 'resource-marker' ? trackMarkerSpritePosition(flight.resourceKey!) : flight.kind === 'brewer-marker' ? meepleSpritePosition(flight.playerColor || 'black') : flight.kind === 'meeple' ? meepleSpritePosition(flight.playerColor || 'black') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <BarrelGoalArt id={flight.barrelId || 0} /> : flight.kind === 'expansion-cargo' ? flight.cargoKind === 'barrel' ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="" /> : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="" /> : flight.kind === 'cart' ? <span className="transport-cart-marker flight-cart-marker">{(flight.cargoCount ?? 0) > 0 && <span className="cart-cargo-stack">{Array.from({ length: flight.cargoCount ?? 0 }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="" /></span> : flight.kind === 'die' ? <DiceFace value={flight.dieValue ?? 1} /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : flight.kind === 'store-card' ? <img src={`/Images/store_${flight.storeId}.png`} alt="" /> : null}</div>)}
-    <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div>{G.expansionEnabled && <span className="expansion-room-badge">扩展对局</span>}<div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div><button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{!isLocal && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number((client as any).playerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
+    <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div>{G.expansionEnabled && <span className="expansion-room-badge">扩展对局</span>}<div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div>{G.phase === 'finished' && <button className="icon-btn final-score-reopen" onClick={() => setShowFinalScore(true)}>最终计分</button>}<button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{!isLocal && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number((client as any).playerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
     {!isLocal && roomCode && onlineVoteState.votes.length > 0 && <div className="abandon-vote-progress"><b>放弃游戏投票 · {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</b><span>{humanPlayerSeats.map(seat => `${G.players[seat].name}：${onlineVoteState.votes.includes(seat) ? '已投票' : '未投票'}`).join('　')}</span></div>}
     {!isLocal && onlineVoteState.passed && <div className="abandon-vote-banner"><b>所有真人玩家已同意，正在删除本局和记录。</b>{isRoomHost && <button className="btn btn-gold" onClick={onLeaveAbandoned}>重试删除</button>}</div>}
-    {G.phase === 'finished' && <GameOverScoreModal game={G} gameover={gameover} winnerNames={winnerIds.map(id => G.players[Number(id)]?.name).filter((name): name is string => !!name)} onExit={onExit} />}
+    {G.phase === 'finished' && showFinalScore && <GameOverScoreModal game={G} gameover={gameover} winnerNames={winnerIds.map(id => G.players[Number(id)]?.name).filter((name): name is string => !!name)} onExit={onExit} onClose={() => setShowFinalScore(false)} />}
     <div className={`game-layout ${isBotTurn ? 'bot-thinking' : ''}`}>
       <section className="center-play"><div className="board-heading"><div><h2>主游戏版图</h2></div>{isBotTurn ? <span className="bot-thinking-pill"><i className="bot-thinking-dot" />{G.players[activeSeat]?.name} 正在思考 · 搜索 {activeBotSearch?.iterations ?? 0} 次</span> : <span className="board-tip"></span>}</div>
         <div className="main-board-wrap"><img src="/Images/main_board_clear.jpg" alt="天堂与美酒主版图" className="main-board-art" /><div className="track-overlay">

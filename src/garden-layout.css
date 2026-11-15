@@ -75,7 +75,7 @@
 .production-marker::after{content:attr(data-marker-label);position:absolute;left:50%;bottom:calc(100% + 1px);z-index:100;transform:translate(-50%,3px) scale(.9);padding:3px 7px;border:1px solid #e5ca8c;border-radius:3px;background:#17231ef2;color:#fff0c5;font:600 10px/1.2 'Noto Serif SC',serif;white-space:nowrap;opacity:0;visibility:hidden;box-shadow:0 3px 8px #000b;pointer-events:none;transition:opacity .12s ease,transform .12s ease,visibility .12s ease}
 .production-marker:hover{z-index:100!important;transform:translate(-50%,-50%) scale(1.35)}
 .production-marker:hover::after{opacity:1;visibility:visible;transform:translate(-50%,0) scale(1)}
-.brewer-marker-art{position:absolute;z-index:6;width:13.5%;height:18%;display:block;transform:translate(-50%,-50%);background-image:url('/Images/brewer_meeples_3d.png');background-repeat:no-repeat;background-size:400% 100%;filter:drop-shadow(0 0 1px #fff9) drop-shadow(0 2px 3px #000e);cursor:help;pointer-events:auto;transition:transform .16s ease,filter .16s ease}
+.brewer-marker-art{position:absolute;z-index:6;width:6%;height:9%;display:block;transform:translate(-50%,-50%);background-image:url('/Images/brewer_meeples_3d.png');background-repeat:no-repeat;background-size:400% 100%;filter:drop-shadow(0 0 1px #fff9) drop-shadow(0 2px 3px #000e);cursor:help;pointer-events:auto;transition:transform .16s ease,filter .16s ease}
 .brewer-marker-art::after,.player-meeple::after{position:absolute;left:50%;bottom:calc(100% + 2px);z-index:100;transform:translate(-50%,3px) scale(.9);padding:3px 7px;border:1px solid #e5ca8c;border-radius:3px;background:#17231ef2;color:#fff0c5;font:600 10px/1.2 'Noto Serif SC',serif;white-space:nowrap;opacity:0;visibility:hidden;box-shadow:0 3px 8px #000b;pointer-events:none;transition:opacity .12s ease,transform .12s ease,visibility .12s ease}
 .brewer-marker-art::after{content:attr(data-marker-label)}
 .player-meeple::after{content:attr(data-player-name)}
@@ -131,6 +131,23 @@
 .player-live-metrics .live-total small,.player-live-metrics .live-total b{color:#f3db9c}
 .game-over-banner{margin:9px 0 14px;padding:10px 13px;border:1px solid #ad9055;background:#2b3429;color:#eee0be;font-size:10px}
 .game-over-banner b{color:#ffdf98}
+.game-score-backdrop{z-index:1100;background:#101810d9;backdrop-filter:blur(4px)}
+.game-score-modal{width:min(980px,96vw);max-height:calc(100vh - 32px);display:flex;flex-direction:column;overflow:hidden;border:2px solid #382d20;border-radius:16px;background:#f2e7c8;color:#342b20;box-shadow:0 22px 90px #000c}
+.game-score-header{padding:18px 24px 12px;background:linear-gradient(110deg,#e9a536,#f4c45a);border-bottom:2px solid #49351f;text-align:center}
+.game-score-header .eyebrow{color:#63471e;font-size:10px;letter-spacing:.2em}
+.game-score-header h2{margin:5px 0;font-family:var(--serif);font-size:clamp(20px,3vw,30px);color:#35291c}
+.game-score-header p{margin:4px 0 0;font-size:14px;font-weight:700;color:#553b1d}
+.game-score-table-wrap{overflow:auto;padding:12px 16px 4px}
+.game-score-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}
+.game-score-table th,.game-score-table td{padding:9px 10px;border:1px solid #59452c;text-align:center;overflow-wrap:anywhere}
+.game-score-table thead th{background:#e4a633;color:#332719;font-size:14px}
+.game-score-table thead th:first-child{width:31%;text-align:right}
+.game-score-table tbody th{background:#f5edd8;text-align:left;font-weight:600}
+.game-score-table tbody td{background:#fff9e8;font-variant-numeric:tabular-nums}
+.game-score-table .score-row-highlight th,.game-score-table .score-row-highlight td{background:#eaddb8;font-weight:700}
+.game-score-table .score-total-row th,.game-score-table .score-total-row td{background:#e9a536;font-size:16px;font-weight:800}
+.game-score-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 18px 14px;color:#715c3e;font-size:12px}
+@media(max-width:650px){.game-score-backdrop{padding:8px}.game-score-modal{width:100%;max-height:calc(100vh - 16px);border-radius:10px}.game-score-header{padding:13px 10px 9px}.game-score-header p{font-size:12px}.game-score-table-wrap{padding:8px 6px 2px}.game-score-table{min-width:560px;font-size:11px}.game-score-table th,.game-score-table td{padding:7px 6px}.game-score-table thead th:first-child{width:190px}.game-score-footer{padding:8px 10px 10px;font-size:10px}}
 .resource-summary{display:flex;align-items:center;gap:12px;color:#dfd5bd}
 .summary-title{font-size:9px;color:#d1b979;white-space:nowrap;letter-spacing:.05em}
 .resource-summary table{border-collapse:collapse;font-size:9px}
@@ -272,7 +289,7 @@
 .bot-seat-options button.selected{background:#625537;color:#fff0c5;box-shadow:0 1px 4px #0007}
 .setup-card .bot-seat-row>input{height:31px;margin:0;padding:0 8px;font-size:9px}
 .production-marker{width:5%;height:5%;border:0;box-shadow:none}
-.brewer-marker-art{width:13.5%;height:18%;transform:translate(-50%,-50%);filter:drop-shadow(0 0 1px #fff9) drop-shadow(0 2px 3px #000e)}
+.brewer-marker-art{width:6%;height:9%;transform:translate(-50%,-50%);filter:drop-shadow(0 0 1px #fff9) drop-shadow(0 2px 3px #000e)}
 .table-screen.expansion-enabled .hut-yield-badge{left:auto;right:35%;top:1%;transform:none;min-width:18px;height:18px;padding:0 3px;border-width:1px;border-color:#e5d3a58c;background:#17231dc9;color:#e5d3a5;font-size:10px;opacity:.78;box-shadow:0 1px 3px #0008}
 .bot-thinking-pill{display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #b99b5d;border-radius:22px;background:#202d27;color:#f4ddb0;font-size:10px;white-space:nowrap;box-shadow:0 2px 8px #0007}
 .bot-thinking-pill .bot-thinking-dot{width:9px;height:9px;margin:0;flex:none}

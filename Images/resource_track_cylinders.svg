@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="100" viewBox="0 0 500 100" fill="none">
+  <defs>
+    <linearGradient id="wood-side" x1="0" y1="0.5" x2="1" y2="0.5" gradientUnits="objectBoundingBox"><stop stop-color="#8C4216"/><stop offset=".45" stop-color="#B96A2B"/><stop offset="1" stop-color="#542309"/></linearGradient>
+    <linearGradient id="wood-top" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#D58A4D"/><stop offset=".48" stop-color="#A95D27"/><stop offset="1" stop-color="#73330F"/></linearGradient>
+    <linearGradient id="yeast-side" x1="0" y1="0.5" x2="1" y2="0.5" gradientUnits="objectBoundingBox"><stop stop-color="#B9B9B2"/><stop offset=".45" stop-color="#F5F3E8"/><stop offset="1" stop-color="#85847D"/></linearGradient>
+    <linearGradient id="yeast-top" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#FFFDF4"/><stop offset=".55" stop-color="#E9E7DD"/><stop offset="1" stop-color="#B9B8B0"/></linearGradient>
+    <linearGradient id="hops-side" x1="0" y1="0.5" x2="1" y2="0.5" gradientUnits="objectBoundingBox"><stop stop-color="#56852C"/><stop offset=".45" stop-color="#9FC85D"/><stop offset="1" stop-color="#355A1B"/></linearGradient>
+    <linearGradient id="hops-top" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#D0E98A"/><stop offset=".5" stop-color="#9FC85D"/><stop offset="1" stop-color="#65913A"/></linearGradient>
+    <linearGradient id="water-side" x1="0" y1="0.5" x2="1" y2="0.5" gradientUnits="objectBoundingBox"><stop stop-color="#12669E"/><stop offset=".45" stop-color="#268BCC"/><stop offset="1" stop-color="#083E6C"/></linearGradient>
+    <linearGradient id="water-top" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#69C7F2"/><stop offset=".52" stop-color="#268BCC"/><stop offset="1" stop-color="#17639E"/></linearGradient>
+    <linearGradient id="barley-side" x1="0" y1="0.5" x2="1" y2="0.5" gradientUnits="objectBoundingBox"><stop stop-color="#C58B00"/><stop offset=".45" stop-color="#F3BF25"/><stop offset="1" stop-color="#8A5900"/></linearGradient>
+    <linearGradient id="barley-top" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#FFE875"/><stop offset=".5" stop-color="#F3BF25"/><stop offset="1" stop-color="#D39408"/></linearGradient>
+  </defs>
+  <g stroke="#11110E" stroke-width="3.5" stroke-linejoin="round">
+    <g>
+      <ellipse cx="50" cy="79" rx="31" ry="8" fill="#000" fill-opacity=".42" stroke="none"/>
+      <path d="M21 31v34c0 9 13 16 29 16s29-7 29-16V31" fill="url(#wood-side)"/>
+      <path d="M25 59c8 5 15 7 25 7s17-2 25-7" stroke="#E4A36B" stroke-opacity=".7" stroke-width="2"/>
+      <ellipse cx="50" cy="31" rx="29" ry="23" fill="url(#wood-top)"/>
+      <ellipse cx="50" cy="31" rx="20" ry="15" stroke="#F0B57F" stroke-opacity=".45" stroke-width="1.5"/>
+    </g>
+    <g transform="translate(100)">
+      <ellipse cx="50" cy="79" rx="31" ry="8" fill="#000" fill-opacity=".42" stroke="none"/>
+      <path d="M21 31v34c0 9 13 16 29 16s29-7 29-16V31" fill="url(#yeast-side)"/>
+      <path d="M25 59c8 5 15 7 25 7s17-2 25-7" stroke="#FFF" stroke-opacity=".8" stroke-width="2"/>
+      <ellipse cx="50" cy="31" rx="29" ry="23" fill="url(#yeast-top)"/>
+      <ellipse cx="50" cy="31" rx="20" ry="15" stroke="#FFF" stroke-opacity=".85" stroke-width="1.5"/>
+    </g>
+    <g transform="translate(200)">
+      <ellipse cx="50" cy="79" rx="31" ry="8" fill="#000" fill-opacity=".42" stroke="none"/>
+      <path d="M21 31v34c0 9 13 16 29 16s29-7 29-16V31" fill="url(#hops-side)"/>
+      <path d="M25 59c8 5 15 7 25 7s17-2 25-7" stroke="#DDF2A4" stroke-opacity=".75" stroke-width="2"/>
+      <ellipse cx="50" cy="31" rx="29" ry="23" fill="url(#hops-top)"/>
+      <ellipse cx="50" cy="31" rx="20" ry="15" stroke="#E6F5B5" stroke-opacity=".75" stroke-width="1.5"/>
+    </g>
+    <g transform="translate(300)">
+      <ellipse cx="50" cy="79" rx="31" ry="8" fill="#000" fill-opacity=".42" stroke="none"/>
+      <path d="M21 31v34c0 9 13 16 29 16s29-7 29-16V31" fill="url(#water-side)"/>
+      <path d="M25 59c8 5 15 7 25 7s17-2 25-7" stroke="#8AD7F8" stroke-opacity=".8" stroke-width="2"/>
+      <ellipse cx="50" cy="31" rx="29" ry="23" fill="url(#water-top)"/>
+      <ellipse cx="50" cy="31" rx="20" ry="15" stroke="#B6E9FF" stroke-opacity=".7" stroke-width="1.5"/>
+    </g>
+    <g transform="translate(400)">
+      <ellipse cx="50" cy="79" rx="31" ry="8" fill="#000" fill-opacity=".42" stroke="none"/>
+      <path d="M21 31v34c0 9 13 16 29 16s29-7 29-16V31" fill="url(#barley-side)"/>
+      <path d="M25 59c8 5 15 7 25 7s17-2 25-7" stroke="#FFF0A0" stroke-opacity=".8" stroke-width="2"/>
+      <ellipse cx="50" cy="31" rx="29" ry="23" fill="url(#barley-top)"/>
+      <ellipse cx="50" cy="31" rx="20" ry="15" stroke="#FFF3B4" stroke-opacity=".8" stroke-width="1.5"/>
+    </g>
+  </g>
+</svg>

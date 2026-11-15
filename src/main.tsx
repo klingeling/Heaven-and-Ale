@@ -388,6 +388,47 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const gameover = ctx.gameover as { winner?: string; winners?: string[]; draw?: boolean; scores?: number[] } | undefined;
   const winnerIds = gameover?.winners ?? (gameover?.winner !== undefined ? [String(gameover.winner)] : []);
   const moves = (client as any).moves;
+  const downloadGameDebug = () => {
+    const liveState = (client as any).store?.getState?.() ?? state;
+    const liveGame = liveState?.G as AleState | undefined;
+    const payload = {
+      format: 'heaven-and-ale-debug',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      session: {
+        mode: isLocal ? 'local' : 'online',
+        roomCode: roomCode || undefined,
+        botSeats,
+        botDifficulty: isLocal ? botDifficulty : remoteBotDifficulty,
+        playerNames: liveGame?.players?.map(player => player.name) ?? [],
+      },
+      stateID: liveState?._stateID,
+      ctx: liveState?.ctx,
+      diagnostics: {
+        phase: liveGame?.phase,
+        round: liveGame?.round,
+        maxRounds: liveGame?.maxRounds,
+        currentPlayer: liveState?.ctx?.currentPlayer,
+        pending: liveGame?.pending,
+        confirmationKind: liveGame?.confirmationKind,
+        logCycle: liveGame?.logCycle,
+        players: liveGame?.players?.map((player, seat) => ({ seat, name: player.name, position: player.position, retired: player.retired, coins: player.coins })),
+        expansionPlayers: liveGame?.expansion?.players?.map((board, seat) => ({ seat, cartPosition: board.cartPosition, cartBarrels: board.cartBarrels, deliveredBarrels: board.deliveredBarrels, breweryDeliveries: board.breweryDeliveries })),
+      },
+      G: liveGame,
+      botSearch: {
+        local: botSearchStatus,
+        shared: sharedBotSearches,
+      },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `heaven-and-ale-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   const ownsCurrentTurn = isLocal || Number((client as any).playerID) === currentPlayerIndex;
   useEffect(() => {
     const ownID = Number((client as any).playerID);
@@ -1114,7 +1155,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
             </div>
           </div>
         </div>;
-      })}</div><div className="rail-heading log-heading">行动日志</div><div className="log-list">{G.log.slice(0, 80).reverse().map((line, i) => <p key={i} className={line.startsWith('[[TURN:') ? 'log-turn-divider' : ''}>{renderLog(line, G.players)}</p>)}</div></aside>
+      })}</div><div className="rail-heading log-heading"><span>行动日志</span><button type="button" className="log-export-button" onClick={downloadGameDebug} title="下载当前对局状态、日志及机器人搜索状态">导出对局</button></div><div className="log-list">{G.log.slice(0, 80).reverse().map((line, i) => <p key={i} className={line.startsWith('[[TURN:') ? 'log-turn-divider' : ''}>{renderLog(line, G.players)}</p>)}</div></aside>
     </div>
     {showUnstoredCargoPrompt && action?.baseDone && !action.cargoDone && hasStorableCargoRemaining && <div className="modal-backdrop" onClick={() => setShowUnstoredCargoPrompt(false)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="unstored-cargo-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowUnstoredCargoPrompt(false)}>×</button><span className="eyebrow">CARGO STORAGE</span><h2 id="unstored-cargo-title">还有货物可以拿取</h2><p>当前行动格还剩 {remainingCargoReminder}，并且你还有空存储格可用。要返回继续放置吗？</p><div className="confirm-actions"><button className="btn btn-outline" onClick={() => setShowUnstoredCargoPrompt(false)}>返回拿取</button><button className="btn btn-gold" onClick={() => { setShowUnstoredCargoPrompt(false); moves.finishExpansionCargo(); }}>仍然结束</button></div></div></div>}
     {showRules && <div className="modal-backdrop" onClick={() => setShowRules(false)}><div className="rules-modal" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowRules(false)}>×</button><span className="eyebrow">HOW TO PLAY</span><h2>修道院经营要点</h2><p>每回合沿公共轨道向前移动，并执行落点行动。购买资源与僧侣板块后，将它们放入花园的向阳或阴凉空格。</p><ul><li>阴凉板块按面值购买；资源激活时获得钱币。</li><li>向阳板块花费双倍；资源激活时推进对应生产轨道。</li><li>计分行动会激活对应产值、资源或僧侣，帮助提升最终分数。</li><li>返回起点领取奖励，本轮休息；所有人都返回后开始新一轮。</li></ul><p className="fine-print">线上联机需要先启动项目内的 boardgame.io 服务端。各回合在玩家设备上依次进行。</p></div></div>}
@@ -1244,7 +1285,7 @@ function ExpansionTransportBoard({ board, color, playerIndex, pieceFlights, stor
         const routeIndex = 9 + breweryIndex, location = cartRoute[routeIndex];
         const inFlight = pieceFlights.filter(flight => flight.kind === 'expansion-cargo' && flight.playerIndex === playerIndex && flight.cargoKind === 'barrel' && flight.targetRouteIndex === routeIndex).length;
         const visibleCount = Math.max(0, count - inFlight);
-        return visibleCount > 0 ? <div key={`brewery-delivery-${breweryIndex}`} className="transport-brewery-delivery" style={{ left: `${Math.min(92, location.left + 20)}%`, top: `${location.top}%` }} title={`第 ${breweryIndex + 1} 酒馆已交付 ${count} 桶`} aria-label={`第 ${breweryIndex + 1} 酒馆已交付 ${count} 桶`}>{Array.from({ length: visibleCount }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}<b>×{count}</b></div> : null;
+        return visibleCount > 0 ? <div key={`brewery-delivery-${breweryIndex}`} className="transport-brewery-delivery" style={{ left: `${Math.min(92, location.left + 20)}%`, top: `${location.top}%` }} title={`第 ${breweryIndex + 1} 酒馆已交付 ${count} 桶`} aria-label={`第 ${breweryIndex + 1} 酒馆已交付 ${count} 桶`}><img src="/Images/barrel_cargo_icon.png" alt="" /><b>×{visibleCount}</b></div> : null;
       })}
     </div>
     {/* <div className="expansion-transport-summary"><span><img className="summary-cart-icon" src="/Images/cart_horse_icon.png" alt="马车" />{Array.from({ length: board.cartBarrels }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="桶装酒" />)}</span><span>已交付 <img src="/Images/barrel_cargo_icon.png" alt="" /> <b>{board.deliveredBarrels}</b></span><span>推车位置 <b>{cartLocation.name}</b></span></div> */}

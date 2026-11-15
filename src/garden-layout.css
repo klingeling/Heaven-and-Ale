@@ -374,8 +374,11 @@
 .cart-cargo-stack{position:static;z-index:2;display:flex;align-items:flex-end;align-self:flex-start;justify-content:flex-start;gap:0px;margin:0 0 -15px 10%;pointer-events:none}
 .cart-cargo-stack img{display:block;width:20px;height:20px;object-fit:contain;filter:drop-shadow(0 1px 1px #17100b);margin: 0 -15% 0 0;}
 .transport-brewery-delivery{position:absolute;z-index:7;display:flex;align-items:center;justify-content:center;gap:1px;min-height:22px;padding:1px 3px;transform:translate(-50%,-50%);border:1px solid #e0c581;border-radius:12px;background:#1a241ee8;box-shadow:0 1px 4px #000b;pointer-events:none;white-space:nowrap}
-.transport-brewery-delivery img{width:18px;height:21px;object-fit:contain;filter:drop-shadow(0 1px 1px #0009)}
+.transport-brewery-delivery img{width:18px;height:21px;flex:none;object-fit:contain;filter:drop-shadow(0 1px 1px #0009)}
 .transport-brewery-delivery b{color:#ffedbf;font-size:9px}
+.far-right-rail .log-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.log-export-button{flex:none;padding:4px 8px;border:1px solid #a88b55;border-radius:4px;background:#26352b;color:#f0d99f;font:inherit;font-size:10px;letter-spacing:0;cursor:pointer;white-space:nowrap}
+.log-export-button:hover{background:#3a4936;border-color:#e1c47f;color:#fff0c6}
 .tile-flight.flight-expansion-cargo,.tile-flight.flight-cart,.tile-flight.flight-die{display:grid;place-items:center;overflow:visible}
 .tile-flight.flight-expansion-cargo>.transport-cargo-token{width:75%;height:75%;filter:drop-shadow(0 2px 3px #000b)}
 .tile-flight.flight-expansion-cargo>.transport-cargo-token.straw-icon,.tile-flight.flight-expansion-cargo>.transport-cargo-token.barrel-icon{width:75%;height:75%;object-fit:contain}

@@ -523,6 +523,22 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     }
   }, []);
   const [viewingPlayerIndex, setViewingPlayerIndex] = useState(ownPlayerIndex);
+  // Tile faces are small but numerous. Browsers may defer decoding an image
+  // until it becomes visible, which makes an opponent-board switch look like
+  // its tiles are appearing late. Warm the shared tile artwork once when the
+  // table opens so switching boards only changes the board state, not loading.
+  useEffect(() => {
+    const urls = [
+      ...resources.flatMap(resource => Array.from({ length: 5 }, (_, index) => `/Images/${resource}_${index + 1}.png`)),
+      ...['A', 'B', 'C', 'D'].map(code => `/Images/monk_tile_${code}.png`),
+    ];
+    for (const url of urls) {
+      const image = new Image();
+      image.decoding = 'async';
+      image.src = url;
+      void image.decode().catch(() => undefined);
+    }
+  }, []);
   useEffect(() => {
     if (botSeats.includes(currentPlayerIndex)) setViewingPlayerIndex(currentPlayerIndex);
     else if (isLocal || ownPlayerIndex === currentPlayerIndex) setViewingPlayerIndex(ownPlayerIndex);

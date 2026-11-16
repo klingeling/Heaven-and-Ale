@@ -4,7 +4,7 @@ import {
   validShedSelection, type AleState, type PlayerState, type Resource, type ShedChoice, type Tile,
 } from './game';
 import { STORAGE_UNLOCK_ORDER, UNLOCKABLE_STORAGE_SLOTS, cartGateBeforeLocation, cartRoute, emptyExpansionStorageSlots, storedCargoCount, validCartLoadChoices, type ExpansionCargo, type ExpansionPlayerBoard } from './expansion';
-import { extractBotValueFeatures, predictBotValueCorrection } from './bot-value-network';
+import { extractBotValueFeatures, predictBotValueCorrection, type BotValueModel } from './bot-value-network';
 
 export type BotDifficulty = 'normal' | 'expert';
 export type BotMove = { name: string; args: unknown[] };
@@ -667,12 +667,12 @@ export function searchValueHeuristic(G: AleState, player: number) {
   return evaluate(p, G.round, G.maxRounds) + expansionValue + expansionSetupPotential(G, player) - economyRisk(G, player);
 }
 
-export function searchValue(G: AleState, player: number) {
+export function searchValue(G: AleState, player: number, valueModel?: BotValueModel | null) {
   const base = searchValueHeuristic(G, player);
   if (G.phase === 'finished' || G.players[player]?.retired && G.round === G.maxRounds) return base;
   // The network only learns a correction to the hand-built estimate. The
   // training script enables it only after a held-out match shows lower error.
-  return base + predictBotValueCorrection(extractBotValueFeatures(G, player, base));
+  return base + predictBotValueCorrection(extractBotValueFeatures(G, player, base), valueModel);
 }
 
 

@@ -9,6 +9,7 @@
     "server": "tsx server.ts",
     "preview": "vite preview",
     "train:bot-value": "tsx scripts/train-bot-value.ts",
+    "eval:bot-models": "tsx scripts/evaluate-bot-models.ts",
     "check:bot": "tsx scripts/check-bot-economy.ts"
   },
   "dependencies": {

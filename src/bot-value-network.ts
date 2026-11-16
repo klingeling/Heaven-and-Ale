@@ -130,8 +130,7 @@ export function extractBotValueFeatures(G: AleState, playerIndex: number, heuris
   return features;
 }
 
-export function predictBotValueCorrection(features: number[]): number {
-  const model = activeModel;
+export function predictBotValueCorrection(features: number[], model: BotValueModel | null = activeModel): number {
   if (!model || model.version !== 1 || model.inputSize !== features.length || model.hiddenSize < 1 || model.blend <= 0) return 0;
   let output = model.outputBias;
   for (let hidden = 0; hidden < model.hiddenSize; hidden++) {

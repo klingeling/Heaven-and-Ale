@@ -2,9 +2,11 @@ import { CreateGameReducer } from 'boardgame.io/internal';
 import type { State } from 'boardgame.io';
 import { HeavenAle, type AleState } from './game';
 import { chooseBotMove, searchMoves, searchValue, skippedOpportunityCost, type BotMove, type BotDifficulty } from './bot';
+import type { BotValueModel } from './bot-value-network';
 
 type SearchState = State<AleState>;
 type Node = { move?: BotMove; visits: number; values: number[]; children: Node[] };
+export type BotSearchOptions = { maxIterations?: number; treeDepth?: number; rolloutTurns?: number };
 const reducer = CreateGameReducer({ game: HeavenAle, isClient: false });
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 function step(state: SearchState, move: BotMove): SearchState {
@@ -53,7 +55,7 @@ function completeAction(state: SearchState, first: BotMove, policy: (state: Sear
   }
   return next;
 }
-export function searchBotMove(source: SearchState, difficulty: BotDifficulty, budgetOverride?: number, onProgress?: (iterations: number) => void) {
+export function searchBotMove(source: SearchState, difficulty: BotDifficulty, budgetOverride?: number, onProgress?: (iterations: number) => void, valueModel?: BotValueModel | null, searchOptions: BotSearchOptions = {}) {
   // Seed from public state only. Repeated decisions from the same position
   // get the same sampling stream; hidden future deck order never seeds search.
   const publicState = JSON.stringify({ G: { ...source.G, resourceDecks: undefined, monkDecks: undefined, log: undefined, undoSnapshot: undefined }, currentPlayer: source.ctx.currentPlayer });
@@ -69,10 +71,11 @@ export function searchBotMove(source: SearchState, difficulty: BotDifficulty, bu
     policyCache.set(key,move); return move;
   };
   const root: Node={visits:0,values:source.G.players.map(()=>0),children:[]};
-  const baseline=source.G.players.map((_,i)=>searchValue(source.G,i));
+  const baseline=source.G.players.map((_,i)=>searchValue(source.G,i,valueModel));
   const deadline=performance.now()+(budgetOverride ?? (difficulty==='expert'?12000:3000));
-  const treeDepth=difficulty==='expert'?18:10;
-  const rolloutTurns=difficulty==='expert'?6:4;
+  const treeDepth=searchOptions.treeDepth ?? (difficulty==='expert'?18:10);
+  const rolloutTurns=searchOptions.rolloutTurns ?? (difficulty==='expert'?6:4);
+  const maxIterations=searchOptions.maxIterations;
   const initial=searchMoves(source.G,source.ctx.currentPlayer);
   if (initial.length<=1) return { move: initial[0] ?? null, iterations:0 };
   // Previously progressive widening also constrained the root. Under a short
@@ -90,7 +93,7 @@ export function searchBotMove(source: SearchState, difficulty: BotDifficulty, bu
     });
   };
   let iterations=0;
-  while (performance.now()<deadline || iterations===0) {
+  while ((maxIterations === undefined ? performance.now()<deadline : iterations<maxIterations) || iterations===0) {
     let state=determinize(source,random), node=root;
     const costs=baseline.map(()=>0);
     const path=[node];
@@ -143,7 +146,7 @@ export function searchBotMove(source: SearchState, difficulty: BotDifficulty, bu
       if (next._stateID===state._stateID) break;
       state=next;
     }
-    const gains=baseline.map((base,i)=>searchValue(state.G,i)-base-costs[i]);
+    const gains=baseline.map((base,i)=>searchValue(state.G,i,valueModel)-base-costs[i]);
     const rewards=gains.map((gain,i)=> {
       const others=gains.filter((_,j)=>i!==j);
       const rival=others.reduce((sum,v)=>sum+v,0)/Math.max(1,others.length);

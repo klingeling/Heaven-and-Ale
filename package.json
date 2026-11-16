@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "server": "tsx server.ts",
     "preview": "vite preview",
+    "train:bot-value": "tsx scripts/train-bot-value.ts",
     "check:bot": "tsx scripts/check-bot-economy.ts"
   },
   "dependencies": {

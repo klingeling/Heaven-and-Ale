@@ -4,6 +4,7 @@ import {
   validShedSelection, type AleState, type PlayerState, type Resource, type ShedChoice, type Tile,
 } from './game';
 import { STORAGE_UNLOCK_ORDER, UNLOCKABLE_STORAGE_SLOTS, cartGateBeforeLocation, cartRoute, emptyExpansionStorageSlots, storedCargoCount, validCartLoadChoices, type ExpansionCargo, type ExpansionPlayerBoard } from './expansion';
+import { extractBotValueFeatures, predictBotValueCorrection } from './bot-value-network';
 
 export type BotDifficulty = 'normal' | 'expert';
 export type BotMove = { name: string; args: unknown[] };
@@ -659,11 +660,19 @@ export function searchMoves(G: AleState, playerID: string, fast = false): BotMov
   }
   return [...new Map([...(preferred ? [preferred] : []), ...alternatives].map(m => [JSON.stringify(m), m])).values()];
 }
-export function searchValue(G: AleState, player: number) {
+export function searchValueHeuristic(G: AleState, player: number) {
   const p = G.players[player];
   if (G.phase === 'finished' || (p.retired && G.round === G.maxRounds)) return scoreBreakdown(p, G.expansionEnabled ? G.expansion?.players[player] : undefined).total;
   const expansionValue = G.expansionEnabled ? scoreBreakdown(p, G.expansion?.players[player]).expansionBarrelScore : 0;
   return evaluate(p, G.round, G.maxRounds) + expansionValue + expansionSetupPotential(G, player) - economyRisk(G, player);
+}
+
+export function searchValue(G: AleState, player: number) {
+  const base = searchValueHeuristic(G, player);
+  if (G.phase === 'finished' || G.players[player]?.retired && G.round === G.maxRounds) return base;
+  // The network only learns a correction to the hand-built estimate. The
+  // training script enables it only after a held-out match shows lower error.
+  return base + predictBotValueCorrection(extractBotValueFeatures(G, player, base));
 }
 
 

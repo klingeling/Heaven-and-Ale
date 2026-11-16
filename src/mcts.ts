@@ -71,16 +71,45 @@ export function searchBotMove(source: SearchState, difficulty: BotDifficulty, bu
   const root: Node={visits:0,values:source.G.players.map(()=>0),children:[]};
   const baseline=source.G.players.map((_,i)=>searchValue(source.G,i));
   const deadline=performance.now()+(budgetOverride ?? (difficulty==='expert'?12000:3000));
-  const treeDepth=difficulty==='expert'?12:8;
-  const rolloutTurns=difficulty==='expert'?5:3;
+  const treeDepth=difficulty==='expert'?18:10;
+  const rolloutTurns=difficulty==='expert'?6:4;
   const initial=searchMoves(source.G,source.ctx.currentPlayer);
   if (initial.length<=1) return { move: initial[0] ?? null, iterations:0 };
+  // Previously progressive widening also constrained the root. Under a short
+  // budget this could spend most visits on the heuristic's first few moves.
+  // Seed every legal root action so each gets one rollout before UCT focuses.
+  root.children=initial.map(move=>({move,visits:0,values:baseline.map(()=>0),children:[]}));
+  const rootActor=Number(source.ctx.currentPlayer);
+  const selectChild=(parent:Node,children:Node[],actor:number,exploration:number) => {
+    const unvisited=children.find(child=>child.visits===0);
+    if(unvisited) return unvisited;
+    return children.reduce((best,child)=> {
+      const uct=(candidate:Node)=>candidate.values[actor]/candidate.visits+
+        exploration*Math.sqrt(Math.log(parent.visits+1)/candidate.visits);
+      return uct(child)>uct(best)?child:best;
+    });
+  };
   let iterations=0;
   while (performance.now()<deadline || iterations===0) {
     let state=determinize(source,random), node=root;
     const costs=baseline.map(()=>0);
     const path=[node];
     let depth=0;
+    const legalRoot=new Set(searchMoves(state.G,state.ctx.currentPlayer).map(move=>JSON.stringify(move)));
+    const rootChoices=root.children.filter(child=>child.move && legalRoot.has(JSON.stringify(child.move)));
+    if(!rootChoices.length) break;
+    const rootChild=selectChild(root,rootChoices,rootActor,difficulty==='expert'?.9:.65);
+    const afterRoot=completeAction(state,rootChild.move!,policy,costs);
+    if(afterRoot._stateID===state._stateID) {
+      // A rejected/stale action must not be selected indefinitely.
+      rootChild.visits++;
+      rootChild.values[rootActor]-=1;
+      root.visits++;
+      iterations++;
+      if(iterations===1 || iterations%16===0) onProgress?.(iterations);
+      continue;
+    }
+    state=afterRoot; node=rootChild; path.push(node); depth++;
     while (!state.ctx.gameover && state.G.phase!=='finished' && depth<treeDepth) {
       // Supplies and score spaces may change after any simulated player's
       // action. Recompute legality from this exact simulated state each visit.
@@ -98,10 +127,7 @@ export function searchBotMove(source: SearchState, difficulty: BotDifficulty, bu
         const actor=Number(state.ctx.currentPlayer);
         const viable=node.children.filter(c=>keys.has(JSON.stringify(c.move)));
         if (!viable.length) break;
-        child=viable.reduce((best,c)=> {
-          const uct=(n:Node)=>n.values[actor]/Math.max(1,n.visits)+.5*Math.sqrt(Math.log(node.visits+1)/Math.max(1,n.visits));
-          return uct(c)>uct(best)?c:best;
-        });
+        child=selectChild(node,viable,actor,difficulty==='expert'?.75:.55);
       }
       const next=completeAction(state,child.move!,policy,costs);
       if (next._stateID===state._stateID) break;
@@ -125,7 +151,7 @@ export function searchBotMove(source: SearchState, difficulty: BotDifficulty, bu
     });
     for (const visited of path) { visited.visits++; rewards.forEach((v,i)=>visited.values[i]+=v); }
     iterations++;
-    onProgress?.(iterations);
+    if(iterations===1 || iterations%16===0) onProgress?.(iterations);
   }
   const best=[...root.children].sort((a,b)=>b.visits-a.visits || b.values[Number(source.ctx.currentPlayer)]/Math.max(1,b.visits)-a.values[Number(source.ctx.currentPlayer)]/Math.max(1,a.visits))[0];
   return { move:best?.move ?? initial[0],iterations,

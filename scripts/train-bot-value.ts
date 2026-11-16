@@ -20,6 +20,11 @@ const random = (seed: number) => () => {
   return ((value ^ value >>> 14) >>> 0) / 4294967296;
 };
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
+function readableGameLog(line: string) {
+  const turn = line.match(/^\[\[TURN:(\d+):(\d+)\]\]$/);
+  if (turn) return `—— 第 ${turn[1]} 轮 · 第 ${turn[2]} 回合 ——`;
+  return line.replace(/\[\[MONK:([A-D])\]\]/g, '僧侣图标');
+}
 
 function generateGames(gameCount: number): TrainingRow[] {
   const rows: TrainingRow[] = [];
@@ -46,7 +51,7 @@ function generateGames(gameCount: number): TrainingRow[] {
       if (!move) throw new Error(`Bot stalled in training game ${gameIndex}, ply ${ply}, phase ${state.G.phase}`);
       const next = reducer(state, { type: 'MAKE_MOVE', payload: { type: move.name, args: move.args, playerID: String(playerIndex) } });
       if (next._stateID === state._stateID) throw new Error(`Illegal bot move in training game ${gameIndex}, ply ${ply}: ${move.name}`);
-      const logged = Array.isArray(next.G.log) ? [...next.G.log].reverse() : [];
+      const logged = Array.isArray(next.G.log) ? [...next.G.log].reverse().map(readableGameLog) : [];
       if (logged.length) actionLog.push(...logged);
       else actionLog.push(`第${state.G.round}轮 玩家${playerIndex + 1} ${move.name} ${JSON.stringify(move.args)}`);
       state = { ...next, G: { ...next.G, log: [] }, _undo: [], _redo: [] };

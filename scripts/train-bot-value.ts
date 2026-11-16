@@ -1,12 +1,16 @@
-import { writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { InitializeGame, CreateGameReducer } from 'boardgame.io/internal';
 import { HeavenAle, scoreBreakdown, type AleState } from '../src/game';
 import { chooseBotMove, searchValueHeuristic } from '../src/bot';
-import { BOT_VALUE_FEATURE_COUNT, extractBotValueFeatures, type BotValueModel } from '../src/bot-value-network';
+import { BOT_VALUE_FEATURE_COUNT, extractBotValueFeatures, predictBotValueCorrection, type BotValueModel } from '../src/bot-value-network';
 
 type TrainingRow = { game: number; playerIndex: number; heuristic: number; features: number[]; target: number };
 const outputPath = new URL('../src/bot-value-model.ts', import.meta.url);
-const samples = Number(process.env.BOT_TRAIN_GAMES || 80);
+const samples = Number(process.env.BOT_TRAIN_GAMES || 200);
+const seedOffset = Number(process.env.BOT_TRAIN_SEED || 0);
+const logDirectory = process.env.BOT_TRAIN_LOG_DIR || 'training-logs';
+const logPath = join(process.cwd(), logDirectory, `bot-selfplay-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`);
 const hiddenSize = 16;
 const epochs = 55;
 const random = (seed: number) => () => {
@@ -19,13 +23,17 @@ const clamp = (value: number, low: number, high: number) => Math.max(low, Math.m
 
 function generateGames(gameCount: number): TrainingRow[] {
   const rows: TrainingRow[] = [];
+  mkdirSync(logDirectory, { recursive: true });
+  writeFileSync(logPath, `天堂与美酒机器人自战记录\n训练局数：${gameCount}\n随机种子起点：${seedOffset}\n格式：每局汇总 + 引擎行动日志\n`, 'utf8');
   for (let gameIndex = 0; gameIndex < gameCount; gameIndex++) {
     const numPlayers = [2, 3, 4][gameIndex % 3];
     const expansionEnabled = gameIndex % 2 === 1;
+    const seed = seedOffset + gameIndex;
     const game = { ...HeavenAle, setup: (args: any) => HeavenAle.setup(args, { expansionEnabled }) };
-    let state: any = InitializeGame({ game, numPlayers, seed: `value-${gameIndex}` });
+    let state: any = InitializeGame({ game, numPlayers, seed: `value-${seed}` });
     const reducer = CreateGameReducer({ game, isClient: false });
     const gameRows: TrainingRow[] = [];
+    const actionLog: string[] = [];
     for (let ply = 0; ply < 1200 && state.G.phase !== 'finished' && !state.ctx.gameover; ply++) {
       const playerIndex = Number(state.ctx.currentPlayer);
       if (state.G.phase === 'play' && !state.G.pending && !state.G.confirmationKind && !state.G.privilegePrompts.length && !state.G.shedChoices.length) {
@@ -38,6 +46,9 @@ function generateGames(gameCount: number): TrainingRow[] {
       if (!move) throw new Error(`Bot stalled in training game ${gameIndex}, ply ${ply}, phase ${state.G.phase}`);
       const next = reducer(state, { type: 'MAKE_MOVE', payload: { type: move.name, args: move.args, playerID: String(playerIndex) } });
       if (next._stateID === state._stateID) throw new Error(`Illegal bot move in training game ${gameIndex}, ply ${ply}: ${move.name}`);
+      const logged = Array.isArray(next.G.log) ? [...next.G.log].reverse() : [];
+      if (logged.length) actionLog.push(...logged);
+      else actionLog.push(`第${state.G.round}轮 玩家${playerIndex + 1} ${move.name} ${JSON.stringify(move.args)}`);
       state = { ...next, G: { ...next.G, log: [] }, _undo: [], _redo: [] };
     }
     if (state.G.phase !== 'finished') throw new Error(`Training game ${gameIndex} did not finish`);
@@ -46,6 +57,15 @@ function generateGames(gameCount: number): TrainingRow[] {
       row.target = finalScore - row.heuristic;
     }
     rows.push(...gameRows);
+    const results = state.G.players.map((player: any, index: number) => ({ name: player.name, score: scoreBreakdown(player, state.G.expansionEnabled ? state.G.expansion?.players[index] : undefined).total }));
+    const highScore = Math.max(...results.map((result: { score: number }) => result.score));
+    const winners = results.flatMap((result: { name: string; score: number }) => result.score === highScore ? [result.name] : []);
+    const details = [
+      `\n第 ${gameIndex + 1} 局 | ${numPlayers} 人 | ${expansionEnabled ? '扩展' : '基础'} | seed ${seed}`,
+      `结果：${results.map((result: { name: string; score: number }) => `${result.name} ${result.score}分`).join(' · ')} | 获胜：${winners.join('、')}`,
+      ...actionLog.map(line => `  ${line}`),
+    ];
+    appendFileSync(logPath, `${details.join('\n')}\n`, 'utf8');
     if ((gameIndex + 1) % 10 === 0) console.log(`Self-play games: ${gameIndex + 1}/${gameCount}`);
   }
   return rows;
@@ -130,13 +150,19 @@ function calibration(rows: TrainingRow[], model: ReturnType<typeof initModel>) {
   return { blend, baselineMSE, calibratedMSE, improvement: baselineMSE > 0 ? (baselineMSE - calibratedMSE) / baselineMSE : 0 };
 }
 
-console.log(`Generating ${samples} self-play games...`);
+function existingModelMSE(rows: TrainingRow[]) {
+  return rows.reduce((sum, row) => sum + (row.target - predictBotValueCorrection(row.features)) ** 2, 0) / Math.max(1, rows.length);
+}
+
+console.log(`Generating ${samples} self-play games; log: ${logPath}`);
 const rows = generateGames(samples);
 const { model, validation } = fit(rows);
 const metrics = calibration(validation, model);
-console.log(`Held-out heuristic residual MSE ${metrics.baselineMSE.toFixed(3)}; network MSE ${metrics.calibratedMSE.toFixed(3)}; improvement ${(metrics.improvement * 100).toFixed(1)}%`);
-if (metrics.improvement < .02 || metrics.blend <= 0) {
-  console.log('No reliable held-out improvement; existing heuristic remains active and model file is unchanged.');
+const oldMSE = existingModelMSE(validation);
+appendFileSync(logPath, `\n训练汇总 | 新模型留出误差 ${metrics.calibratedMSE.toFixed(3)} | 原模型留出误差 ${oldMSE.toFixed(3)} | 零修正误差 ${metrics.baselineMSE.toFixed(3)} | 改善 ${(metrics.improvement * 100).toFixed(1)}%\n`);
+console.log(`Held-out residual MSE: new ${metrics.calibratedMSE.toFixed(3)}, current ${oldMSE.toFixed(3)}, no-network ${metrics.baselineMSE.toFixed(3)}; improvement ${(metrics.improvement * 100).toFixed(1)}%`);
+if (metrics.improvement < .02 || metrics.blend <= 0 || metrics.calibratedMSE >= oldMSE) {
+  console.log('New model did not beat the current model on held-out games; current model remains active.');
   process.exit(0);
 }
 const result: BotValueModel = { version: 1, inputSize: BOT_VALUE_FEATURE_COUNT, hiddenSize,

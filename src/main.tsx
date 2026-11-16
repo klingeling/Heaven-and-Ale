@@ -67,7 +67,7 @@ function GameOverScoreModal({ game, gameover, winnerNames, onExit, onClose }: { 
       {rows.map(({ label, symbol, values, className }) => <tr className={className} key={label}><th scope="row"><span className="score-sheet-row-label">{symbol}<span>{label}</span></span></th>{values.map((value, index) => <td key={index}>{value}</td>)}</tr>)}
       <tr className="score-total-row"><th scope="row">总分</th>{players.map(({ scoring }, index) => <td key={index}>{gameover?.scores?.[index] ?? scoring.total}</td>)}</tr>
     </tbody></table></div>
-    <footer className="game-score-footer"><span>{game.expansionEnabled ? '基础游戏 + 扩展' : '基础游戏'}</span><button className="btn btn-outline" onClick={onClose}>查看终局盘面</button><button className="btn btn-gold" onClick={onExit}>回到主页</button></footer>
+    {/* <footer className="game-score-footer"><span>{game.expansionEnabled ? '基础游戏 + 扩展' : '基础游戏'}</span><button className="btn btn-outline" onClick={onClose}>查看终局盘面</button><button className="btn btn-gold" onClick={onExit}>回到主页</button></footer> */}
   </section></div>;
 }
 const localSaveKey = 'heaven-and-ale-local-session-v1';

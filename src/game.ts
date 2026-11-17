@@ -669,6 +669,11 @@ export const HeavenAle: Game<AleState> = {
       if (!choice || !player || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.confirmationKind || !canSelectShedCell(choice, cellIndex)) return;
       saveStepSnapshot(G);
       const selectedAt = choice.selected.indexOf(cellIndex);
+      if (choice.mode === 'nonAdjacent') {
+        if (selectedAt >= 0) { choice.selected = []; return; }
+        choice.selected = nonAdjacentShedTriples(choice.candidates).find(set => set.includes(cellIndex)) ?? [];
+        return;
+      }
       if (selectedAt >= 0 && choice.mode === 'opposite') choice.selected = [];
       else if (selectedAt >= 0) choice.selected.splice(selectedAt, 1);
       else if (choice.mode === 'opposite') {
@@ -862,7 +867,7 @@ export function validShedSelection(choice: ShedChoice) {
     return Math.abs(a - b) === 3;
   }
   if (choice.mode === 'nonAdjacent') {
-    return selected.length === 3 && selected.every((cell, i) => selected.slice(i + 1).every(other => !gardenNeighbors(cell).includes(other)));
+    return selected.length === 3 && nonAdjacentShedTriples(choice.candidates).some(set => set.every(cell => selected.includes(cell)));
   }
   return selected.length === 4;
 }
@@ -871,6 +876,7 @@ export function canSelectShedCell(choice: ShedChoice, cellIndex: number) {
   if (choice.selected.includes(cellIndex)) return true;
   if (choice.mode === 'opposite') return choice.selected.length === 0;
   if (choice.mode === 'one' || choice.mode === 'any') return choice.selected.length < choice.activateCount;
+  if (choice.mode === 'nonAdjacent') return nonAdjacentShedTriples(choice.candidates).some(set => set.includes(cellIndex) && choice.selected.every(selected => set.includes(selected)));
   if (choice.selected.length >= choice.activateCount) return false;
   const required = [...choice.selected, cellIndex];
   const candidates = choice.candidates;
@@ -880,6 +886,14 @@ export function canSelectShedCell(choice: ShedChoice, cellIndex: number) {
     if (nonAdjacent && required.every(cell => set.includes(cell))) return true;
   }
   return false;
+}
+function nonAdjacentShedTriples(candidates: number[]) {
+  const triples: number[][] = [];
+  for (let a = 0; a < candidates.length; a++) for (let b = a + 1; b < candidates.length; b++) for (let c = b + 1; c < candidates.length; c++) {
+    const set = [candidates[a], candidates[b], candidates[c]];
+    if (set.every((cell, i) => set.slice(i + 1).every(other => !gardenNeighbors(cell).includes(other)))) triples.push(set);
+  }
+  return triples;
 }
 export function shedProductionProgress(board: Cell[], hutIndex: number) {
   const neighbors = gardenNeighbors(hutIndex), filled = neighbors.filter(index => !!board[index]?.tile);

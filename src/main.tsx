@@ -587,7 +587,30 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const lastPlacedExpansionStoreId = React.useRef<number | null>(null);
   const [selectedExpansionCargoKind, setSelectedExpansionCargoKind] = useState<ExpansionCargo | null>(null);
   const [pieceFlights, setPieceFlights] = useState<PieceFlight[]>([]);
-  const [movementTrails, setMovementTrails] = useState<MovementTrail[]>([]);
+  const trailStorageKey = `heaven-and-ale-movement-trails-${isLocal ? 'local' : roomCode || 'online'}-${(client as any).playerID ?? 'spectator'}`;
+  const [movementTrails, setMovementTrails] = useState<MovementTrail[]>(() => {
+    if (typeof window === 'undefined' || !G.confirmationKind) return [];
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(trailStorageKey) || 'null') as { width: number; height: number; trails: MovementTrail[] } | null;
+      if (!saved?.trails?.length) return [];
+      const scaleX = window.innerWidth / Math.max(1, saved.width);
+      const scaleY = window.innerHeight / Math.max(1, saved.height);
+      return saved.trails.map(trail => ({
+        ...trail,
+        started: true,
+        pathPoints: trail.pathPoints.map(point => ({ ...point, x: point.x * scaleX, y: point.y * scaleY })),
+      }));
+    } catch { return []; }
+  });
+  useEffect(() => {
+    try {
+      if (!G.confirmationKind || movementTrails.length === 0) {
+        sessionStorage.removeItem(trailStorageKey);
+        return;
+      }
+      sessionStorage.setItem(trailStorageKey, JSON.stringify({ width: window.innerWidth, height: window.innerHeight, trails: movementTrails }));
+    } catch { /* session storage is only a visual convenience */ }
+  }, [movementTrails, G.confirmationKind, trailStorageKey]);
   const reverseCartMotionRef = React.useRef(false);
   const undoStepTargetStateIdRef = React.useRef<number | null>(null);
   const previousConfirmationKindRef = React.useRef(G.confirmationKind);
@@ -1725,7 +1748,7 @@ function ScoreDisc({ index, label }: { index: number; label: string }) {
 function shedChoiceInstruction(choice: ShedChoice) {
   if (choice.mode === 'one') return '任选 1 块';
   if (choice.mode === 'opposite') return '点选一块，自动勾选其对角板块';
-  if (choice.mode === 'nonAdjacent') return '选择 3 块互不相邻的板块，非法位置会禁用';
+  if (choice.mode === 'nonAdjacent') return '任选一块，自动勾选另外两块';
   return '任选 4 块';
 }
 createRoot(document.getElementById('root')!).render(<App />);

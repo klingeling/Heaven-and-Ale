@@ -2,7 +2,9 @@ import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { InitializeGame, CreateGameReducer } from 'boardgame.io/internal';
 import { HeavenAle, scoreBreakdown, type AleState } from '../src/game';
-import { chooseBotMove, searchValueHeuristic } from '../src/bot';
+import { chooseBotMove, searchMoves, searchValueHeuristic, type BotMove } from '../src/bot';
+import { searchBotMove } from '../src/mcts';
+import { botValueModel } from '../src/bot-value-model';
 import { BOT_VALUE_FEATURE_COUNT, extractBotValueFeatures, predictBotValueCorrection, type BotValueModel } from '../src/bot-value-network';
 
 type TrainingRow = { game: number; playerIndex: number; heuristic: number; features: number[]; target: number };
@@ -10,9 +12,11 @@ const outputPath = new URL('../src/bot-value-model.ts', import.meta.url);
 const samples = Number(process.env.BOT_TRAIN_GAMES || 200);
 const seedOffset = Number(process.env.BOT_TRAIN_SEED || 0);
 const logDirectory = process.env.BOT_TRAIN_LOG_DIR || 'training-logs';
+const mctsEvery = Math.max(1, Number(process.env.BOT_TRAIN_MCTS_EVERY || 4));
+const mctsIterations = Math.max(4, Number(process.env.BOT_TRAIN_MCTS_ITERATIONS || 24));
 const logPath = join(process.cwd(), logDirectory, `bot-selfplay-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`);
 const hiddenSize = 16;
-const epochs = 55;
+const epochs = 30;
 const random = (seed: number) => () => {
   seed |= 0; seed = seed + 0x6D2B79F5 | 0;
   let value = Math.imul(seed ^ seed >>> 15, 1 | seed);
@@ -29,7 +33,7 @@ function readableGameLog(line: string) {
 function generateGames(gameCount: number): TrainingRow[] {
   const rows: TrainingRow[] = [];
   mkdirSync(logDirectory, { recursive: true });
-  writeFileSync(logPath, `天堂与美酒机器人自战记录\n训练局数：${gameCount}\n随机种子起点：${seedOffset}\n格式：每局汇总 + 引擎行动日志\n`, 'utf8');
+  writeFileSync(logPath, `天堂与美酒机器人自战记录\n训练局数：${gameCount}\n随机种子起点：${seedOffset}\n策略：每 ${mctsEvery} 个自由行动混入一次 MCTS（至少 ${mctsIterations} 次模拟，并确保覆盖所有合法根行动；深度 4）\n格式：每局汇总 + 引擎行动日志\n`, 'utf8');
   for (let gameIndex = 0; gameIndex < gameCount; gameIndex++) {
     const numPlayers = [2, 3, 4][gameIndex % 3];
     const expansionEnabled = gameIndex % 2 === 1;
@@ -39,15 +43,25 @@ function generateGames(gameCount: number): TrainingRow[] {
     const reducer = CreateGameReducer({ game, isClient: false });
     const gameRows: TrainingRow[] = [];
     const actionLog: string[] = [];
+    let freeDecisionCount = 0;
     for (let ply = 0; ply < 1200 && state.G.phase !== 'finished' && !state.ctx.gameover; ply++) {
       const playerIndex = Number(state.ctx.currentPlayer);
-      if (state.G.phase === 'play' && !state.G.pending && !state.G.confirmationKind && !state.G.privilegePrompts.length && !state.G.shedChoices.length) {
+      const freeTurn = state.G.phase === 'play' && !state.G.pending && !state.G.startChoice && !state.G.confirmationKind && !state.G.privilegePrompts.length && !state.G.shedChoices.length && !state.G.expansion?.cartMovement && !state.G.expansion?.storePrompts?.length;
+      if (freeTurn) {
         const heuristic = searchValueHeuristic(state.G, playerIndex);
         const features = extractBotValueFeatures(state.G, playerIndex, heuristic);
         if (features.length !== BOT_VALUE_FEATURE_COUNT) throw new Error(`Feature width changed: expected ${BOT_VALUE_FEATURE_COUNT}, got ${features.length}`);
         gameRows.push({ game: gameIndex, playerIndex, heuristic, features, target: 0 });
       }
-      const move = chooseBotMove(state.G, String(playerIndex), gameIndex % 4 === 0 ? 'expert' : 'normal');
+      let move: BotMove | null = null;
+      if (freeTurn && ++freeDecisionCount % mctsEvery === (seed % mctsEvery)) {
+        move = searchBotMove(state, 'expert', undefined, undefined, undefined, {
+          // MCTS gives each root move an initial visit, so cover all legal
+          // actions before adding the configured extra search budget.
+          maxIterations: Math.max(mctsIterations, searchMoves(state.G, playerIndex).length), treeDepth: 4, rolloutTurns: 1,
+        }).move;
+      }
+      move ??= chooseBotMove(state.G, String(playerIndex), gameIndex % 4 === 0 ? 'expert' : 'normal');
       if (!move) throw new Error(`Bot stalled in training game ${gameIndex}, ply ${ply}, phase ${state.G.phase}`);
       const next = reducer(state, { type: 'MAKE_MOVE', payload: { type: move.name, args: move.args, playerID: String(playerIndex) } });
       if (next._stateID === state._stateID) throw new Error(`Illegal bot move in training game ${gameIndex}, ply ${ply}: ${move.name}`);
@@ -101,7 +115,12 @@ function fit(rows: TrainingRow[]) {
   const validationGames = new Set(gameIDs.filter((_, index) => index % 5 === 0));
   const train = rows.filter(row => !validationGames.has(row.game));
   const validation = rows.filter(row => validationGames.has(row.game));
-  const model = initModel(BOT_VALUE_FEATURE_COUNT, 20261116);
+  const active = botValueModel as BotValueModel;
+  // Fine-tune from the deployed evaluator instead of throwing away what the
+  // existing 120-game model learned. This makes small training batches safe.
+  const model = active?.inputSize === BOT_VALUE_FEATURE_COUNT && active.hiddenSize === hiddenSize
+    ? { inputWeights: [...active.inputWeights], inputBias: [...active.inputBias], outputWeights: [...active.outputWeights], outputBias: active.outputBias }
+    : initModel(BOT_VALUE_FEATURE_COUNT, 20261116);
   const parameters = [model.inputWeights, model.inputBias, model.outputWeights, [model.outputBias]];
   const firstMoments = parameters.map(parameter => parameter.map(() => 0));
   const secondMoments = parameters.map(parameter => parameter.map(() => 0));
@@ -140,7 +159,7 @@ function fit(rows: TrainingRow[]) {
     const loss = validation.reduce((sum, row) => sum + (predict(model, row.features).value - row.target) ** 2, 0) / Math.max(1, validation.length);
     if (loss < bestLoss) { bestLoss = loss; bestWeights = structuredClone(model); stale = 0; }
     else if (++stale >= 10) break;
-    if ((epoch + 1) % 10 === 0) console.log(`Training epoch ${epoch + 1}, validation residual MSE ${loss.toFixed(3)}`);
+    if ((epoch + 1) % 5 === 0) console.log(`Training epoch ${epoch + 1}, validation residual MSE ${loss.toFixed(3)}`);
   }
   return { model: bestWeights, train, validation, rawValidationMSE: bestLoss };
 }

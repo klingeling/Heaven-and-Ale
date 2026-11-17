@@ -166,9 +166,7 @@
 .game-score-table .score-expansion-row th,.game-score-table .score-expansion-row td{background:#edf0d8}
 .game-score-table .score-total-row th,.game-score-table .score-total-row td{background:#e9a536;font-size:16px;font-weight:800;border-bottom-left-radius:10px}
 .game-score-table .score-total-row td:last-child{border-bottom-right-radius:10px}
-.game-score-footer{position:relative;z-index:1;flex:0 0 auto;display:flex;align-items:center;justify-content:flex-end;gap:9px;padding:10px 16px 13px;border-top:1px solid #bba77b;background:#f2e7c8;color:#715c3e;font-size:11px}
-.game-score-footer>span{margin-right:auto}
-@media(max-width:650px){.game-score-backdrop{padding:8px}.game-score-modal{width:100%;max-height:calc(100vh - 16px);border-radius:10px}.game-score-header{padding:13px 45px 9px}.game-score-header p{font-size:12px}.game-score-table-wrap{padding:8px 6px 8px}.game-score-table{min-width:530px;font-size:11px}.game-score-table th,.game-score-table td{padding:5px 6px}.game-score-table thead th:first-child{width:145px}.score-sheet-row-label{gap:5px}.score-sheet-icon{width:29px;height:29px}.score-sheet-row-label>span:last-child{font-size:10px}.game-score-footer{flex-wrap:wrap;padding:8px 8px 10px;font-size:10px;gap:5px}.game-score-footer>span{flex:1 0 100%;margin:0}.game-score-footer .btn{padding:5px 8px}}
+@media(max-width:650px){.game-score-backdrop{padding:8px}.game-score-modal{width:100%;max-height:calc(100vh - 16px);border-radius:10px}.game-score-header{padding:13px 45px 9px}.game-score-header p{font-size:12px}.game-score-table-wrap{padding:8px 6px 8px}.game-score-table{min-width:530px;font-size:11px}.game-score-table th,.game-score-table td{padding:5px 6px}.game-score-table thead th:first-child{width:145px}.score-sheet-row-label{gap:5px}.score-sheet-icon{width:29px;height:29px}.score-sheet-row-label>span:last-child{font-size:10px}}
 .resource-summary{display:flex;align-items:center;gap:12px;color:#dfd5bd}
 .summary-title{font-size:9px;color:#d1b979;white-space:nowrap;letter-spacing:.05em}
 .resource-summary table{border-collapse:collapse;font-size:9px}

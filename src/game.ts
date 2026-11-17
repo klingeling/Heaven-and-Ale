@@ -464,6 +464,34 @@ export const HeavenAle: Game<AleState> = {
       pending.cargoTaken = (pending.cargoTaken ?? 0) + 1;
       G.log.unshift(`${player.name} 从第 ${pending.space + 1} 格拿取${kind === 'barrel' ? '1 桶桶装酒' : '1 捆干草'}${storageSlot === -1 ? '，放入临时存储格并支付4钱币' : `，放入存储格 ${storageSlot + 1}`}。`);
     },
+    takeExpansionCargoBatch: ({ G, ctx }, picks: { kind: ExpansionCargo; storageSlot: number }[]) => {
+      const pending = G.pending, playerIndex = Number(ctx.currentPlayer), player = G.players[playerIndex], expansion = G.expansion;
+      if (!G.expansionEnabled || !expansion || !pending || pending.player !== ctx.currentPlayer || !pending.baseDone || pending.cargoDone || G.confirmationKind || !player || !Array.isArray(picks) || picks.length < 2 || picks.length > 8) return;
+      const cargoPile = expansion.cargoByTrackSpace[pending.space], board = expansion.players[playerIndex];
+      if (!cargoPile || !board) return;
+      const nextPile = [...cargoPile], nextStorage = [...board.storage];
+      let nextTemporaryStorage = board.temporaryStorage, nextCoins = player.coins;
+      for (const pick of picks) {
+        if (!pick || (pick.kind !== 'barrel' && pick.kind !== 'straw')) return;
+        const cargoIndex = nextPile.indexOf(pick.kind);
+        if (cargoIndex < 0 || !Number.isInteger(pick.storageSlot)) return;
+        if (pick.storageSlot === -1) {
+          if (nextTemporaryStorage || nextCoins < 4) return;
+          nextCoins -= 4; nextTemporaryStorage = pick.kind;
+        } else {
+          const slot = pick.storageSlot;
+          if (slot < 0 || slot >= nextStorage.length || !board.storageUnlocked[slot] || nextStorage[slot] !== null) return;
+          nextStorage[slot] = pick.kind;
+        }
+        nextPile.splice(cargoIndex, 1);
+      }
+      saveStepSnapshot(G);
+      player.coins = nextCoins; board.storage = nextStorage; board.temporaryStorage = nextTemporaryStorage;
+      cargoPile.splice(0, cargoPile.length, ...nextPile);
+      pending.cargoTaken = (pending.cargoTaken ?? 0) + picks.length;
+      const barrels = picks.filter(pick => pick.kind === 'barrel').length, straw = picks.length - barrels;
+      G.log.unshift(`${player.name} 一次拿取桶装酒 ${barrels} 桶、干草 ${straw} 捆并放入存储格${picks.some(pick => pick.storageSlot === -1) ? '（临时存储格支付4钱币）' : ''}。`);
+    },
     finishExpansionCargo: ({ G, ctx }) => {
       const pending = G.pending;
       if (!G.expansionEnabled || !G.expansion || !pending || pending.player !== ctx.currentPlayer || !pending.baseDone || pending.cargoDone || G.confirmationKind) return;
@@ -648,10 +676,19 @@ export const HeavenAle: Game<AleState> = {
         choice.selected = [cellIndex, choice.candidates[(position + 3) % choice.candidates.length]];
       } else choice.selected.push(cellIndex);
     },
-    completeShedChoice: ({ G, ctx }) => {
+    completeShedChoice: ({ G, ctx }, selectedCells?: number[]) => {
       const choice = G.shedChoices[0], player = G.players[Number(ctx.currentPlayer)];
-      if (!choice || !player || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.confirmationKind || !validShedSelection(choice)) return;
+      if (!choice || !player || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.confirmationKind) return;
+      let plannedSelection: number[] | undefined;
+      if (selectedCells !== undefined) {
+        if (!Array.isArray(selectedCells) || new Set(selectedCells).size !== selectedCells.length || choice.selected.some(index => !selectedCells.includes(index))) return;
+        const planned = { ...choice, selected: [...selectedCells] };
+        if (selectedCells.some(index => !choice.candidates.includes(index)) || !validShedSelection(planned)) return;
+        plannedSelection = [...selectedCells];
+      }
+      if (!validShedSelection(plannedSelection ? { ...choice, selected: plannedSelection } : choice)) return;
       saveStepSnapshot(G);
+      if (plannedSelection) choice.selected = plannedSelection;
       const rewards: string[] = [];
       for (const index of choice.selected) {
         const cell = player.board[index];

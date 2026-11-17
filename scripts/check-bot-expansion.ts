@@ -39,10 +39,21 @@ function cargoChoice(coins: number) {
   return chooseBotMove(G, '0', 'expert');
 }
 
+function batchCargoChoice() {
+  const state: any = InitializeGame({ game, numPlayers: 2, seed: 'cargo-batch-choice' });
+  const G = structuredClone(state.G);
+  G.phase = 'play'; G.setupStage = null; G.confirmationKind = null;
+  G.expansion = createExpansionState(2, G.track.length); G.expansionEnabled = true;
+  G.expansion.cargoByTrackSpace[5] = ['barrel', 'straw'];
+  G.pending = { space: 5, type: 'resource', player: '0', baseDone: true, cargoDone: false, cartDone: true, actionsDone: 0 };
+  return chooseBotMove(G, '0', 'expert');
+}
+
 const lowCashLayout = setupPlan(4), highCashLayout = setupPlan(20);
 assert.equal(new Set(lowCashLayout).size, 7);
 assert.equal(new Set(highCashLayout).size, 7);
 assert.deepEqual(cargoChoice(4), { name: 'finishExpansionCargo', args: [] });
 assert.deepEqual(cargoChoice(20), { name: 'takeExpansionCargo', args: ['straw', -1] });
+assert.equal(batchCargoChoice()?.name, 'takeExpansionCargoBatch');
 console.log('Expansion bot submits one complete, unique seven-tile layout.');
-console.log('Cargo selection respects the 4-coin cost and takes straw when it completes a barrel/straw pair.');
+console.log('Cargo selection respects the 4-coin cost, chooses useful pairs, and batches multi-item pickups.');

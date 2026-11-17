@@ -852,12 +852,17 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
         for (const kind of ['barrel', 'straw'] as const) {
           const oldCount = previous.cargoByTrackSpace[spaceIndex]?.filter((item: ExpansionCargo) => item === kind).length ?? 0;
           const newCount = current.cargoByTrackSpace[spaceIndex]?.filter((item: ExpansionCargo) => item === kind).length ?? 0;
-          if (oldCount <= newCount) continue;
+          const gainedCount = oldCount - newCount;
+          if (gainedCount <= 0) continue;
           const source = trackCargoRect(spaceIndex, kind);
-          const targetSlot = now.storage.findIndex((item: ExpansionCargo | null, index: number) => item === kind && old.storage[index] !== kind);
+          const targetSlots = now.storage.flatMap((item: ExpansionCargo | null, index: number) => item === kind && old.storage[index] !== kind ? [index] : []);
           const toTemporary = now.temporaryStorage === kind && old.temporaryStorage !== kind;
-          const target = targetSlot >= 0 ? storageRect(playerIndex, targetSlot) : toTemporary ? storageRect(playerIndex, -1, true) : null;
-          if (source && target) startPieceFlightFromRects('expansion-cargo', source, target, { cargoKind: kind, playerIndex, targetStorageIndex: targetSlot >= 0 ? targetSlot : undefined, targetTemporaryStorage: toTemporary });
+          const targets = targetSlots.map(slot => ({ slot, temporary: false }));
+          if (toTemporary) targets.push({ slot: -1, temporary: true });
+          targets.slice(0, gainedCount).forEach(({ slot, temporary }, index) => {
+            const target = storageRect(playerIndex, slot, temporary);
+            if (source && target) startPieceFlightFromRects('expansion-cargo', source, target, { cargoKind: kind, playerIndex, targetStorageIndex: slot >= 0 ? slot : undefined, targetTemporaryStorage: temporary, delayMs: index * 90 });
+          });
         }
       }
 
@@ -1117,7 +1122,10 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       const coinTime = animateActivationCoins(player, playerIndex, scoreActivationCells(player, category, option));
       return Math.max(discTime, coinTime);
     }
-    if (decision.name === 'completeShedChoice') return Math.max(1120, animateActivationCoins(player, playerIndex, current.G.shedChoices[0]?.selected ?? []));
+    if (decision.name === 'completeShedChoice') {
+      const selected = Array.isArray(decision.args[0]) ? decision.args[0] as number[] : current.G.shedChoices[0]?.selected ?? [];
+      return Math.max(1120, animateActivationCoins(player, playerIndex, selected));
+    }
     if (decision.name === 'chooseStartSlot') {
       const slot = Number(decision.args[0]);
       const moveTime = animateMeepleMove(playerIndex, undefined, slot);
@@ -1350,7 +1358,8 @@ function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove 
             (client as any).moves[decision.name]?.(...decision.args);
           }
         };
-        if (current.G.phase === 'setup' && current.G.setupStage === 'expansion-stores') {
+        const fastPolicyStep = current.G.phase === 'setup' || current.G.startChoice || current.G.shedChoices.length > 0 || current.G.privilegePrompts.length > 0 || !!current.G.confirmationKind || (current.G.expansion?.storePrompts?.length ?? 0) > 0 || (current.G.expansion?.cartMovement?.nextLocation ?? -1) >= 0 || current.G.pending?.baseDone || current.G.pending?.type === 'start';
+        if (fastPolicyStep) {
           finish(chooseBotMove(current.G, current.ctx.currentPlayer, difficulty));
           return;
         }

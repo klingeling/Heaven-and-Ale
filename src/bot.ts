@@ -1,5 +1,5 @@
 import {
-  availableBarrelIds, canBuyFrom, canMoveTo, canScore, canSelectShedCell, canTakeExpansionCargo, canUseExpansionCart, gardenCells, lowestResources,
+  availableBarrelIds, canBuyFrom, canMoveTo, canScore, canTakeExpansionCargo, canUseExpansionCart, gardenCells, lowestResources,
   monkNames, resources, scoreBreakdown, scoreChoices, shedProductionProgress, tileBaseCost,
   validShedSelection, type AleState, type PlayerState, type Resource, type ShedChoice, type Tile,
 } from './game';
@@ -309,7 +309,7 @@ function actionValue(G: AleState, p: PlayerState, index: number, difficulty: Bot
   return space.type === 'start' ? -100 : extensionValue > 0 ? extensionValue : null;
 }
 
-function chooseCellForShed(choice: ShedChoice, p: PlayerState, G: AleState) {
+function chooseShedGroup(choice: ShedChoice, p: PlayerState, G: AleState) {
   const size = choice.activateCount, groups: number[][] = [];
   const build = (start: number, picked: number[]) => {
     if (picked.length === size) {
@@ -324,7 +324,7 @@ function chooseCellForShed(choice: ShedChoice, p: PlayerState, G: AleState) {
     const tile = p.board[i].tile;
     return sum + (tile ? activationValue(p, tile, p.board[i].side, G.round, G.maxRounds) : -100);
   }, 0) })).sort((a, b) => b.value - a.value)[0]?.group;
-  return best?.find(i => !choice.selected.includes(i));
+  return best;
 }
 
 // During expansion setup, the robot plans the whole tile-to-hut allocation.
@@ -610,9 +610,13 @@ export function chooseBotMove(G: AleState, currentPlayer: string, difficulty: Bo
   }
   if (G.pending?.player === currentPlayer && G.pending.baseDone && G.pending.cargoDone === false && G.expansion) {
     const board = G.expansion.players[Number(currentPlayer)], pile = G.expansion.cargoByTrackSpace[G.pending.space] ?? [];
-    const planned = planExpansionCargoCollection(G, player, board, pile).picks[0];
     const canSkipCargo = (G.pending.cargoTaken ?? 0) > 0 || canUseExpansionCart(G, player, G.pending.space);
-    if (planned && (!canSkipCargo || planned.value > .2)) return { name: 'takeExpansionCargo', args: [planned.kind, planned.slot] };
+    const plan = planExpansionCargoCollection(G, player, board, pile);
+    if (plan.picks.length && (!canSkipCargo || plan.value > .2)) {
+      if (plan.picks.length > 1) return { name: 'takeExpansionCargoBatch', args: [plan.picks.map(({ kind, slot }) => ({ kind, storageSlot: slot }))] };
+      const pick = plan.picks[0];
+      if (pick) return { name: 'takeExpansionCargo', args: [pick.kind, pick.slot] };
+    }
     return { name: 'finishExpansionCargo', args: [] };
   }
   if (G.pending?.player === currentPlayer && G.pending.baseDone && G.pending.cargoDone && G.pending.cartDone === false)
@@ -624,8 +628,8 @@ export function chooseBotMove(G: AleState, currentPlayer: string, difficulty: Bo
   if (G.shedChoices.length) {
     const choice = G.shedChoices[0];
     if (validShedSelection(choice)) return { name: 'completeShedChoice', args: [] };
-    const cell = chooseCellForShed(choice, player, G);
-    return cell === undefined ? { name: 'completeShedChoice', args: [] } : { name: 'toggleShedChoice', args: [cell] };
+    const group = chooseShedGroup(choice, player, G);
+    return group ? { name: 'completeShedChoice', args: [group] } : { name: 'completeShedChoice', args: [] };
   }
   if (G.privilegePrompts.length) {
     const prompt = G.privilegePrompts[0];
@@ -707,35 +711,10 @@ export function searchMoves(G: AleState, playerID: string, fast = false): BotMov
   const free = G.phase === 'play' && !G.pending && !G.startChoice && !G.confirmationKind && !G.shedChoices.length && !G.privilegePrompts.length;
   const preferred = fast && free ? null : chooseBotMove(G, playerID, 'expert');
   if (!preferred && !free) return [];
-  if (G.phase === 'setup' && G.setupStage === 'expansion-stores') return preferred ? [preferred] : [];
-  if (G.confirmationKind || (G.expansion?.storePrompts?.length ?? 0) > 0 || (G.expansion?.cartMovement?.nextLocation ?? -1) >= 0 || G.pending?.baseDone)
+  if (G.phase === 'setup' || G.startChoice || G.shedChoices.length || G.privilegePrompts.length || G.confirmationKind || (G.expansion?.storePrompts?.length ?? 0) > 0 || (G.expansion?.cartMovement?.nextLocation ?? -1) >= 0 || G.pending?.baseDone)
     return preferred ? [preferred] : [];
   let alternatives: BotMove[] = [];
-  if (G.phase === 'setup' && G.setupStage === 'expansion-stores' && G.expansion) {
-    const board = G.expansion.players[Number(playerID)];
-    if (board && !G.expansion.storeSetupReady[Number(playerID)]) {
-      const huts = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
-      const used = new Set(board.hutStoreTiles.filter((tile): tile is number => tile !== null));
-      const emptySlots = board.hutStoreTiles.flatMap((tile, index) => tile === null ? [index] : []);
-      alternatives = emptySlots.length
-        ? emptySlots.flatMap(slot => Array.from({ length: 7 }, (_, i) => i + 1).filter(tile => !used.has(tile)).map(tile => ({ name: 'assignExpansionStoreTile', args: [huts[slot], tile] })))
-        : [{ name: 'finishExpansionStoreSetup', args: [] }];
-    }
-  } else if (G.startChoice) alternatives = resources.map(r => ({ name: 'chooseStartResource', args: [r] }));
-  else if (G.confirmationKind) return preferred ? [preferred] : [];
-  else if (G.shedChoices.length) {
-    const choice = G.shedChoices[0];
-    alternatives = validShedSelection(choice) ? (preferred ? [preferred] : []) : choice.candidates
-      .filter(i => !choice.selected.includes(i) && canSelectShedCell(choice, i))
-      .map(i => ({ name: 'toggleShedChoice', args: [i] }));
-  } else if (G.privilegePrompts.length) {
-    const prompt = G.privilegePrompts[0];
-    alternatives = [{ name: 'choosePrivilege', args: ['skip'] }];
-    for (const card of p.privileges) {
-      const targets = card === 'A' ? resources.filter(r => p.board.some(c => c.tile?.resource === r)) : card === 'B' ? lowestResources(p) : [undefined];
-      alternatives.push(...targets.map(r => ({ name: 'choosePrivilege', args: r === undefined ? [card] : [card, r] })));
-    }
-  } else if (G.pending?.type === 'resource' || G.pending?.type === 'monk') {
+  if (G.pending?.type === 'resource' || G.pending?.type === 'monk') {
     const space = G.track[G.pending.space];
     const market = G.pending.type === 'resource' ? G.resources[space.sourceIndex ?? -1] : G.monks[space.sourceIndex ?? -1];
     const ranked = market.flatMap(tile => placementCandidates(G, p, tile, space.sourceIndex ?? 0, 'expert').map(place => ({ ...place, tile }))).sort((a,b) => b.score-a.score);
@@ -749,9 +728,9 @@ export function searchMoves(G: AleState, playerID: string, fast = false): BotMov
   } else if (G.pending?.type === 'score') {
     const kind = G.track[G.pending.space].scoreType || 'ABC';
     alternatives = (kind === 'ABC' ? ['A','B','C'] as const : [kind]).flatMap(c => scoreChoices(p, c).map(o => ({ name: 'takeScore', args: [c,o] })));
-  } else if (G.phase === 'setup' || G.pending?.type === 'start') {
-    const slots = (G.phase === 'setup' ? [1,2,3] : [0,1,2,3]).filter(s => !G.players.some(other => other.startSlot === s));
-    const forced = G.phase !== 'setup' && G.players.every(other => other === p || other.retired) && slots.includes(0);
+  } else if (G.pending?.type === 'start') {
+    const slots = [0, 1, 2, 3].filter(s => !G.players.some(other => other.startSlot === s));
+    const forced = G.players.every(other => other === p || other.retired) && slots.includes(0);
     alternatives = (forced ? [0] : slots).map(s => ({ name: 'chooseStartSlot', args: [s] }));
   } else if (!p.retired) {
     alternatives = G.track.flatMap((_space, i) => canMoveTo(G,p,i) ? [{ name: 'moveTo', args: [i] }] : []);

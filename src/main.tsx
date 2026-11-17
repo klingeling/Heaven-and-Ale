@@ -936,19 +936,20 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       const old = previous[playerIndex], now = current[playerIndex];
       const board = document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${playerIndex}"]`), rect = board?.getBoundingClientRect();
       if (!rect) continue;
-      const markerRect = (value: number, widthRatio: number, heightRatio: number, offset: [number, number] = [0, 0]) => {
+      const markerRect = (value: number, widthRatio: number, heightRatio: number, offset: [number, number] = [0, 0], scale = 1) => {
         const point = productionTrackPositions[value]; if (!point) return null;
-        const width = rect.width * widthRatio, height = rect.height * heightRatio;
+        const width = rect.width * widthRatio * scale, height = rect.height * heightRatio * scale;
         return { left: rect.left + rect.width * (point.left + offset[0]) / 100 - width / 2, top: rect.top + rect.height * (point.top + offset[1]) / 100 - height / 2, width, height };
       };
-      const markerOffset = (key: Resource | 'brewer', value: number, snapshot: typeof current[number]) => {
+      const markerCluster = (key: Resource | 'brewer', value: number, snapshot: typeof current[number]) => {
         const markers = [...resources.map(resource => ({ key: resource, value: snapshot.tracks[resource] })), { key: 'brewer' as const, value: snapshot.brewer }];
         const group = markers.filter(marker => marker.value === value);
-        return markerClusterOffset(group.findIndex(marker => marker.key === key), group.length);
+        return { offset: markerClusterOffset(group.findIndex(marker => marker.key === key), group.length), scale: markerClusterScale(group.length) };
       };
       const markerMotion = (key: Resource | 'brewer', fromValue: number, toValue: number, widthRatio: number, heightRatio: number) => {
-        const from = markerRect(fromValue, widthRatio, heightRatio, markerOffset(key, fromValue, old));
-        const to = markerRect(toValue, widthRatio, heightRatio, markerOffset(key, toValue, now));
+        const fromCluster = markerCluster(key, fromValue, old), toCluster = markerCluster(key, toValue, now);
+        const from = markerRect(fromValue, widthRatio, heightRatio, fromCluster.offset, fromCluster.scale);
+        const to = markerRect(toValue, widthRatio, heightRatio, toCluster.offset, toCluster.scale);
         if (!from || !to) return null;
         const center = (value: number, offset: [number, number]) => {
           const position = markerRect(value, widthRatio, heightRatio, offset);
@@ -957,7 +958,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
         const points: MotionPoint[] = [{ x: from.left + from.width / 2, y: from.top + from.height / 2 }];
         const step = fromValue < toValue ? 1 : -1;
         for (let value = fromValue + step; step > 0 ? value <= toValue : value >= toValue; value += step) {
-          const offset = value === toValue ? markerOffset(key, value, now) : [0, 0] as [number, number];
+          const offset = value === toValue ? toCluster.offset : [0, 0] as [number, number];
           const point = center(value, offset);
           if (point) points.push(point);
         }
@@ -1723,12 +1724,16 @@ function renderLog(line: string, players: AleState['players']) {
 }
 function markerClusterOffset(index: number, count: number): [number, number] {
   const layouts: Record<number, [number, number][]> = {
-    2: [[-.9, 0], [.9, 0]],
-    3: [[-.95, -.7], [.95, -.7], [0, .85]],
-    4: [[-.95, -.7], [.95, -.7], [-.95, .85], [.95, .85]],
-    5: [[-1, -.7], [0, -.7], [1, -.7], [-.55, .85], [.55, .85]],
+    2: [[-1.55, 0], [1.55, 0]],
+    3: [[-1.5, -1.7], [1.5, -1.7], [0, 1.7]],
+    4: [[-1.5, -1.7], [1.5, -1.7], [-1.5, 1.7], [1.5, 1.7]],
+    5: [[-2.05, -1.28], [0, -1.28], [2.05, -1.28], [-1.025, 1.28], [1.025, 1.28]],
+    6: [[-2.1, -1.05], [0, -1.05], [2.1, -1.05], [-2.1, 1.05], [0, 1.05], [2.1, 1.05]],
   };
   return (layouts[count] || [[0, 0]])[index] || [0, 0];
+}
+function markerClusterScale(count: number) {
+  return ({ 1: 1, 2: .52, 3: .5, 4: .5, 5: .35, 6: .35 } as Record<number, number>)[count] ?? 1;
 }
 function Garden({ player, playerIndex, pieceFlights, activePlayer, selectedTile, sourceIndex, coins, canPlace, shedChoice, flightTileId, flightTargetIndex, flightScoreIndex, scoreTargetIndices, onScoreTarget, onShedToggle, onSelect, cells, storeTiles, storeSetup = false, selectedStoreId, storeSetupReady = false, onStoreTarget }: { player: any; playerIndex: number; pieceFlights: PieceFlight[]; activePlayer: any; selectedTile?: Tile; sourceIndex?: number; coins: number; canPlace: boolean; shedChoice?: ShedChoice; flightTileId?: string; flightTargetIndex?: number; flightScoreIndex?: number; scoreTargetIndices: number[]; onScoreTarget: (index: number) => void; onShedToggle: (n: number) => void; onSelect: (n: number) => void; cells: typeof gardenCells; storeTiles?: (number | null)[]; storeSetup?: boolean; selectedStoreId?: number | null; storeSetupReady?: boolean; onStoreTarget?: (index: number, storeId?: number) => void }) {
   const markers = [...resources.map(resource => ({ key: resource, label: resourceLabels[resource], value: player.tracks[resource], color: resourceColors[resource] })), { key: 'brewer', label: '酿酒师', value: player.brewer, color: '#eee4c8' }];
@@ -1758,10 +1763,10 @@ function Garden({ player, playerIndex, pieceFlights, activePlayer, selectedTile,
     return <button key={i} data-garden-index={i} onClick={() => storeSetup ? (storeTarget || storeSource || selectedStoreSource) && onStoreTarget?.(i, storeId ?? undefined) : shedTarget ? onShedToggle(i) : eligible && onSelect(i)} disabled={storeSetup ? !(storeTarget || storeSource || selectedStoreSource) : !eligible && !shedTarget} className={`garden-cell ${g.side || ''} ${g.hut ? 'hut-cell' : ''} ${activeShedHut ? 'active-shed-hut' : ''} ${eligible ? 'eligible' : ''} ${hiddenCandidate ? 'hidden-candidate' : ''} ${tile ? 'filled' : ''} ${cell?.completed ? 'completed' : ''} ${shedTarget ? 'shed-target' : ''} ${shedUnavailable ? 'shed-unavailable' : ''} ${shedSelected ? 'shed-selected' : ''} ${storeTarget ? 'store-target' : ''} ${selectedStoreSource ? 'store-source-selected' : ''}`} style={{ left: `${point.left}%`, top: `${point.top}%` }} title={storeSetup && storeSource ? '点击选择此存储板块' : storeSetup && selectedStoreSource ? '再次点击取消选择' : title}>{g.hut ? <>{cell?.completed && <img className="shed-image" src={`/Images/shed_tile_${cell.shedType}.png`} alt="棚屋奖励" />}{!cell?.completed && storeId && !storeCardFlying && <img className="expansion-hut-store" src={`/Images/store_${storeId}.png`} alt="存储板块" />}{hasShedYield && <span className="hut-yield-badge" aria-label={`棚屋周围产值 ${shownShedYield}`}>{shownShedYield}</span>}</> : tile ? (flightTargetIndex === i && tile.id === flightTileId ? null : <TileFace tile={tile} />) : <span className="plus">{eligible ? `${cost}` : ''}</span>}{shedSelected && <span className="shed-check" aria-label="已选择激活">✓</span>}</button>;
   })}{markers.map(marker => {
     const pos = productionTrackPositions[marker.value]; if (!pos) return null;
-    const group = markerGroups.get(marker.value)!, offset = markerClusterOffset(group.indexOf(marker), group.length);
+    const group = markerGroups.get(marker.value)!, offset = markerClusterOffset(group.indexOf(marker), group.length), markerSize = 6 * markerClusterScale(group.length);
     const markerFlying = pieceFlights.some(flight => flight.playerIndex === playerIndex && (marker.key === 'brewer' ? flight.kind === 'brewer-marker' : flight.kind === 'resource-marker' && flight.resourceKey === marker.key));
     if (markerFlying) return null;
-    return marker.key === 'brewer' ? <span key={marker.key} role="img" className="brewer-marker-art" style={{ left: `${pos.left + offset[0]}%`, top: `${pos.top + offset[1]}%`, zIndex: 9, backgroundPosition: meepleSpritePosition(player.color) }} title={`${marker.label}：${marker.value}`} aria-label="酿酒师标记" data-marker-label={`${marker.label} · ${marker.value}`} /> : <span key={marker.key} className="production-marker" data-resource-key={marker.key} style={{ left: `${pos.left + offset[0]}%`, top: `${pos.top + offset[1]}%`, zIndex: 10 + group.indexOf(marker), backgroundPosition: trackMarkerSpritePosition(marker.key as Resource) }} title={`${marker.label}：${marker.value}`} aria-label={`${marker.label} ${marker.value}`} data-marker-label={marker.label} />;
+    return marker.key === 'brewer' ? <span key={marker.key} role="img" className="brewer-marker-art" style={{ left: `${pos.left + offset[0]}%`, top: `${pos.top + offset[1]}%`, width: `${markerSize}%`, height: `${markerSize * 1.5}%`, zIndex: 9, backgroundPosition: meepleSpritePosition(player.color) }} title={`${marker.label}：${marker.value}`} aria-label="酿酒师标记" data-marker-label={`${marker.label} · ${marker.value}`} /> : <span key={marker.key} className="production-marker" data-resource-key={marker.key} style={{ left: `${pos.left + offset[0]}%`, top: `${pos.top + offset[1]}%`, width: `${markerSize}%`, height: `${markerSize}%`, zIndex: 10 + group.indexOf(marker), backgroundPosition: trackMarkerSpritePosition(marker.key as Resource) }} title={`${marker.label}：${marker.value}`} aria-label={`${marker.label} ${marker.value}`} data-marker-label={marker.label} />;
   })}{player.scores.x !== undefined && flightScoreIndex !== 0 && <ScoreDisc index={0} label={`A 类 · 产值 ${player.scores.x}`} value={player.scores.x} />}{player.scores.resource.map((resource: Resource | null) => { const index = resource ? 1 + resources.indexOf(resource) : -1; return resource && flightScoreIndex !== index && <ScoreDisc key={`resource-${resource}`} index={index} label={`C 类 · ${resourceLabels[resource]}`} />; })}{player.scores.monk.map((used: boolean, i: number) => used && flightScoreIndex !== 6 + i && <ScoreDisc key={`monk-${i}`} index={6 + i} label="B 类 · 僧侣图标" />)}{privilegeCardPositions.map((position, i) => <img key={`privilege-target-${i}`} data-privilege-target-index={i} className="board-privilege-card board-privilege-target" src="/Images/privilege_card_front_A.png" style={{ left: `${position.left}%`, top: `${position.top}%`, height: `${position.height}%` }} alt="" aria-hidden="true" />)}{player.privilegePairs.map((card: string | null, i: number) => card && card !== 'skip' && !pieceFlights.some(flight => flight.kind === 'privilege-card' && flight.playerIndex === playerIndex && flight.pairIndex === i) && <img key={`privilege-${i}`} className="board-privilege-card" src={`/Images/privilege_card_front_${card}.png`} style={{ left: `${privilegeCardPositions[i].left}%`, top: `${privilegeCardPositions[i].top}%`, height: `${privilegeCardPositions[i].height}%` }} title={`第 ${i + 1} 组：特权卡 ${card}`} alt={`第 ${i + 1} 组特权卡 ${card}`} />)}{scoreTargetIndices.map(index => { const point = scoringDiscPositions[index], isMonk = index >= 6, label = index === 0 ? 'A 类' : index <= 5 ? resourceLabels[resources[index - 1]] : '僧侣图标'; return <button key={`score-target-${index}`} type="button" className={`score-disc-target ${isMonk ? 'monk' : 'hex'}`} data-score-target-index={index} style={{ left: `${point.left}%`, top: `${point.top}%` }} title={`点击放置${label}计分圆片`} aria-label={`点击放置${label}计分圆片`} onClick={() => onScoreTarget(index)} />; })}</div>;
 }
 function ScoreDisc({ index, label, value }: { index: number; label: string; value?: number }) {

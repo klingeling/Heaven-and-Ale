@@ -12,7 +12,7 @@ import './readable-text.css';
 
 type AnyClient = ReturnType<typeof Client>;
 type MotionPoint = { x: number; y: number };
-type MovementTrail = { id: string; kind: PieceFlight['kind']; playerIndex?: number; resourceKey?: Resource; pathPoints: MotionPoint[]; durationMs: number; started: boolean };
+type MovementTrail = { id: string; kind: PieceFlight['kind']; playerIndex?: number; resourceKey?: Resource; pathPoints: MotionPoint[]; durationMs: number; started: boolean; scrollX: number; scrollY: number };
 type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean };
 function smoothMotionPath(points: MotionPoint[]) {
   if (!points.length) return '';
@@ -587,6 +587,12 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const lastPlacedExpansionStoreId = React.useRef<number | null>(null);
   const [selectedExpansionCargoKind, setSelectedExpansionCargoKind] = useState<ExpansionCargo | null>(null);
   const [pieceFlights, setPieceFlights] = useState<PieceFlight[]>([]);
+  const [pageScroll, setPageScroll] = useState(() => ({ x: window.scrollX, y: window.scrollY }));
+  useEffect(() => {
+    const updateScroll = () => setPageScroll({ x: window.scrollX, y: window.scrollY });
+    window.addEventListener('scroll', updateScroll, { passive: true });
+    return () => window.removeEventListener('scroll', updateScroll);
+  }, []);
   const trailStorageKey = `heaven-and-ale-movement-trails-${isLocal ? 'local' : roomCode || 'online'}-${(client as any).playerID ?? 'spectator'}`;
   const [movementTrails, setMovementTrails] = useState<MovementTrail[]>(() => {
     if (typeof window === 'undefined' || !G.confirmationKind) return [];
@@ -862,7 +868,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const reversingStepUndo = undoStepTargetStateIdRef.current === state._stateID;
     const pathPoints = flight.pathPoints;
     setPieceFlights(current => [...current, flight]);
-    if (!reversingStepUndo && pathPoints && pathPoints.length > 1) setMovementTrails(current => [...current, { id, kind, playerIndex: flight.playerIndex, resourceKey: flight.resourceKey, pathPoints, durationMs, started: false }]);
+    if (!reversingStepUndo && pathPoints && pathPoints.length > 1) setMovementTrails(current => [...current, { id, kind, playerIndex: flight.playerIndex, resourceKey: flight.resourceKey, pathPoints, durationMs, started: false, scrollX: window.scrollX, scrollY: window.scrollY }]);
     requestAnimationFrame(() => requestAnimationFrame(() => {
       setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item));
       setMovementTrails(current => current.map(item => item.id === id ? { ...item, started: true } : item));
@@ -884,7 +890,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const reversingStepUndo = undoStepTargetStateIdRef.current === state._stateID;
     const pathPoints = flight.pathPoints;
     setPieceFlights(current => [...current, flight]);
-    if (!reversingStepUndo && pathPoints && pathPoints.length > 1) setMovementTrails(current => [...current, { id, kind, playerIndex: flight.playerIndex, resourceKey: flight.resourceKey, pathPoints, durationMs, started: false }]);
+    if (!reversingStepUndo && pathPoints && pathPoints.length > 1) setMovementTrails(current => [...current, { id, kind, playerIndex: flight.playerIndex, resourceKey: flight.resourceKey, pathPoints, durationMs, started: false, scrollX: window.scrollX, scrollY: window.scrollY }]);
     requestAnimationFrame(() => requestAnimationFrame(() => {
       setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item));
       setMovementTrails(current => current.map(item => item.id === id ? { ...item, started: true } : item));
@@ -1449,7 +1455,8 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />)}
     {movementTrails.filter(trail => trail.started).map(trail => {
       const pathData = smoothMotionPath(trail.pathPoints);
-      return <svg key={`trail-${trail.id}`} className="movement-trail" viewBox={`0 0 ${window.innerWidth} ${window.innerHeight}`} preserveAspectRatio="none" aria-hidden="true">
+      const offsetX = pageScroll.x - (trail.scrollX ?? 0), offsetY = pageScroll.y - (trail.scrollY ?? 0);
+      return <svg key={`trail-${trail.id}`} className="movement-trail" style={{ transform: `translate(${-offsetX}px, ${-offsetY}px)` }} viewBox={`0 0 ${window.innerWidth} ${window.innerHeight}`} preserveAspectRatio="none" aria-hidden="true">
         <path className="movement-trail-line" d={pathData} pathLength={1} style={{ ['--flight-duration' as any]: `${trail.durationMs}ms` }} />
         <polygon className="movement-trail-arrow" points="-12,-8 12,0 -12,8">
           <animateMotion dur={`${trail.durationMs}ms`} path={pathData} rotate="auto" fill="freeze" />

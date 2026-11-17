@@ -205,6 +205,8 @@
 .shed-choice-panel .btn{width:auto;height:32px;margin:0}
 .garden-board.shed-choice-active .garden-cell:not(.shed-target){opacity:.95}
 .garden-cell.shed-target{opacity:1!important;z-index:8;border:2px solid #f4d987;background:#d8b96035;box-shadow:0 0 12px #f2d3859c;cursor:pointer;animation:pulse 1s infinite alternate}
+.garden-cell.active-shed-hut{z-index:9!important;border:3px solid #fff0a9!important;background:#ff874b88!important;box-shadow:0 0 0 3px #f04434c9,0 0 24px #ff593ee8;filter:brightness(1.3);transform:translate(-50%,-50%) scale(1.1);animation:active-shed-hut-pulse .8s ease-in-out infinite alternate}
+@keyframes active-shed-hut-pulse{from{filter:brightness(1.08);box-shadow:0 0 0 2px #f04434aa,0 0 12px #ff593ea8}to{filter:brightness(1.38);box-shadow:0 0 0 4px #fff0a9,0 0 24px #ff593eef}}
 .garden-cell.shed-unavailable{opacity:.12!important;filter:grayscale(1);cursor:not-allowed}
 .garden-cell.shed-selected{border:3px solid #fff2bc;background:#ffdf865e;box-shadow:0 0 22px #ffe596;filter:brightness(1.2);transform:translate(-50%,-50%) scale(1.07)}
 .hut-yield-badge{position:absolute;z-index:7;left:50%;top:50%;transform:translate(-50%,-50%);min-width:25px;height:25px;padding:0 4px;display:grid;place-items:center;border:2px solid #f5e5b5;border-radius:50%;background:#162820eF;color:#ffe08a;font-size:12px;font-weight:900;text-shadow:0 1px 2px #000;box-shadow:0 2px 6px #000c;pointer-events:none}

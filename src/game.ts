@@ -929,15 +929,7 @@ function settleHuts(G: AleState, p: PlayerState) {
       const brewerAdvance = range === 0 ? 6 : range === 1 ? 3 : range <= 3 ? 1 : 0;
       const activateCount = range === 0 ? 0 : range === 1 ? 1 : range === 2 ? 2 : range === 3 ? 3 : 4;
       const mode = range === 1 ? 'one' : range === 2 ? 'opposite' : range === 3 ? 'nonAdjacent' : 'any';
-      let defaultSelection: number[] = [];
-      if (mode === 'opposite' && neighbors.every(index => p.board[index].side === 'shade' && !!p.board[index].tile?.resource)) {
-        let bestCoins = -1;
-        for (let pair = 0; pair < 3; pair++) {
-          const selection = [neighbors[pair], neighbors[pair + 3]];
-          const coins = selection.reduce((sum, index) => sum + (p.board[index].tile?.value ?? 0), 0);
-          if (coins > bestCoins) { bestCoins = coins; defaultSelection = selection; }
-        }
-      }
+      const defaultSelection = bestCoinOnlyShedSelection(p.board, neighbors, activateCount, mode);
       p.brewer = Math.min(20, p.brewer + brewerAdvance);
       hut.completed = true; hut.shedType = range; hut.shedValue = value;
       if (G.expansionEnabled && G.expansion) {
@@ -949,6 +941,25 @@ function settleHuts(G: AleState, p: PlayerState) {
       if (activateCount > 0) G.shedChoices.push({ hutIndex: i, value, brewerAdvance, activateCount, mode, candidates: neighbors, selected: defaultSelection });
     }
   });
+}
+function bestCoinOnlyShedSelection(board: Cell[], candidates: number[], count: number, mode: ShedChoice['mode']) {
+  if (!candidates.every(index => board[index].side === 'shade' && !!board[index].tile?.resource)) return [];
+  const combinations: number[][] = [];
+  const build = (start: number, selection: number[]) => {
+    if (selection.length === count) { combinations.push(selection); return; }
+    for (let i = start; i <= candidates.length - (count - selection.length); i++) build(i + 1, [...selection, candidates[i]]);
+  };
+  build(0, []);
+  const legal = combinations.filter(selection => {
+    if (mode === 'opposite') return Math.abs(candidates.indexOf(selection[0]) - candidates.indexOf(selection[1])) === 3;
+    if (mode === 'nonAdjacent') return selection.every((cell, i) => selection.slice(i + 1).every(other => !gardenNeighbors(cell).includes(other)));
+    return true;
+  });
+  return legal.reduce<number[]>((best, selection) => {
+    const coins = selection.reduce((sum, index) => sum + (board[index].tile?.value ?? 0), 0);
+    const bestCoins = best.reduce((sum, index) => sum + (board[index].tile?.value ?? 0), -1);
+    return coins > bestCoins ? selection : best;
+  }, []);
 }
 export function barrelMet(p: PlayerState, id: number) {
   const tiles = p.board.flatMap(c => c.tile ? [c.tile] : []), hutCounts = new Map<number, number>();

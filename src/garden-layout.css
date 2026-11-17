@@ -445,6 +445,16 @@
 .expansion-store-prompt>.btn{width:100%;margin-top:5px}
 .expansion-store-effects{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:5px}
 .expansion-store-effects>.btn{min-height:38px;font-size:11px}
+.store-cargo-icon-choices{display:flex;justify-content:center;gap:14px;margin:12px 0 8px}
+.store-cargo-icon-choice{position:relative;display:grid;place-items:center;width:68px;height:64px;padding:7px;border:2px solid #86734d;border-radius:10px;background:#17241d;cursor:pointer}
+.store-cargo-icon-choice.selected{border-color:#f0c85e;box-shadow:0 0 0 3px #e7b94355,0 3px 10px #0008}
+.store-cargo-icon-choice.placed{opacity:.48}
+.store-cargo-icon-choice:disabled{cursor:default;filter:saturate(.5)}
+.store-cargo-icon-choice img{width:100%;height:100%;object-fit:contain}
+.store-cargo-icon-choice img.hay-icon{width:78%;height:78%}
+.store-cargo-icon-choice small{position:absolute;right:-6px;top:-7px;width:20px;height:20px;border-radius:50%;background:#78a757;color:#fff;font-weight:800;line-height:20px;text-align:center}
+.store-cargo-finish{display:block;max-width:280px;margin:8px auto 0}
+.transport-storage-marker.pending,.transport-temp-marker:has(.transport-cargo-token){filter:drop-shadow(0 0 4px #f2c95a)}
 .expansion-transport-summary span{padding:3px 5px;border:1px solid #ffffff20;background:#19251e}
 @media(max-width:560px){.expansion-hut-assignments{grid-template-columns:1fr}}
 @media(max-width:780px){.expansion-store-shop{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}.expansion-store-tile img{height:50px}}

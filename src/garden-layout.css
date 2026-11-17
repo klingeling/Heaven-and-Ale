@@ -82,7 +82,9 @@
 .player-meeple:hover,.start-player-figure:hover{z-index:100!important;transform:scale(1.3);filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 7px #ffe28a) drop-shadow(0 4px 6px #000f)}
 .brewer-marker-art:hover{z-index:100!important;transform:translate(-50%,-50%) scale(1.35);filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 7px #ffe28a) drop-shadow(0 4px 6px #000f)}
 .brewer-marker-art:hover::after,.player-meeple:hover::after{opacity:1;visibility:visible;transform:translate(-50%,0) scale(1)}
-.player-score-disc{position:absolute;z-index:9;width:5%;height:auto;aspect-ratio:1;object-fit:contain;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 3px #080b08);pointer-events:none}
+.player-score-disc-wrap{position:absolute;z-index:9;display:grid;place-items:center;width:5%;aspect-ratio:1;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 3px #080b08);pointer-events:none}
+.player-score-disc{grid-area:1/1;width:100%;height:100%;object-fit:contain}
+.player-score-disc-value{grid-area:1/1;color:#fff9e9;font:900 clamp(8px,1.1vw,14px)/1 Georgia,serif;text-shadow:0 1px 2px #160f23,1px 0 #160f23,-1px 0 #160f23,0 -1px #160f23;pointer-events:none}
 .score-disc-target{position:absolute;z-index:12;width:9%;height:10%;transform:translate(-50%,-50%);padding:0;border:0;background:transparent;cursor:pointer;clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)}
 .score-disc-target.monk{clip-path:none;border-radius:50%}
 .score-disc-target:hover,.score-disc-target:focus-visible{background:rgba(211,174,240,.24);filter:drop-shadow(0 0 5px #d8a9ff);outline:none}

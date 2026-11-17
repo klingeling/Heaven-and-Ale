@@ -651,7 +651,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   }, [pieceFlights]);
   const [deferredGameAction, setDeferredGameAction] = useState<'undoStep' | 'undoAction' | 'confirmAction' | null>(null);
   const deferredGameActionRef = React.useRef<typeof deferredGameAction>(null);
-  const [scoreChoice, setScoreChoice] = useState<string>('1');
+  const [scoreChoice, setScoreChoice] = useState<string>('');
   const [scoreCategory, setScoreCategory] = useState<'A' | 'B' | 'C'>('A');
   const [privilegeCardChoice, setPrivilegeCardChoice] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
@@ -1418,7 +1418,12 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const scoreCategories: ('A' | 'B' | 'C')[] = currentScoreSpace?.scoreType === 'ABC' ? ['A', 'B', 'C'] : currentScoreSpace?.scoreType ? [currentScoreSpace.scoreType] : [];
   const selectedScoreCategory = scoreCategories.includes(scoreCategory) ? scoreCategory : scoreCategories[0] || 'A';
   const scoreOptions = scoreChoices(activePlayer, selectedScoreCategory).map(String);
-  const selectedScoreOption = scoreOptions.includes(scoreChoice) ? scoreChoice : scoreOptions[0];
+  const needsExplicitProductionChoice = selectedScoreCategory === 'A' && scoreOptions.length > 1;
+  const selectedScoreOption = scoreOptions.includes(scoreChoice) ? scoreChoice : needsExplicitProductionChoice ? '' : scoreOptions[0];
+  useEffect(() => {
+    setScoreChoice('');
+    setScoreCategory('A');
+  }, [action?.player, action?.space, action?.type, currentScoreSpace?.scoreType]);
   const placeScoreChoice = (category: 'A' | 'B' | 'C', choice: string) => {
     if (!canControlTurn || !scoreCategories.includes(category) || !scoreChoices(activePlayer, category).some(value => String(value) === choice)) return;
     const option = category === 'A' ? Number(choice) : choice;
@@ -1437,7 +1442,8 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     if (!canControlTurn || !action || action.baseDone || action.type !== 'score') return;
     if (index === 0) {
       const choices = scoreChoices(activePlayer, 'A').map(String);
-      const choice = selectedScoreCategory === 'A' && selectedScoreOption && choices.includes(selectedScoreOption) ? selectedScoreOption : choices[0];
+      const choice = choices.length === 1 ? choices[0] : selectedScoreCategory === 'A' && selectedScoreOption && choices.includes(selectedScoreOption) ? selectedScoreOption : '';
+      if (!choice) { setToast('请先选择要激活的产值'); return; }
       if (choice) placeScoreChoice('A', choice);
       return;
     }
@@ -1746,11 +1752,11 @@ function Garden({ player, playerIndex, pieceFlights, activePlayer, selectedTile,
     const markerFlying = pieceFlights.some(flight => flight.playerIndex === playerIndex && (marker.key === 'brewer' ? flight.kind === 'brewer-marker' : flight.kind === 'resource-marker' && flight.resourceKey === marker.key));
     if (markerFlying) return null;
     return marker.key === 'brewer' ? <span key={marker.key} role="img" className="brewer-marker-art" style={{ left: `${pos.left + offset[0]}%`, top: `${pos.top + offset[1]}%`, zIndex: 9, backgroundPosition: meepleSpritePosition(player.color) }} title={`${marker.label}：${marker.value}`} aria-label="酿酒师标记" data-marker-label={`${marker.label} · ${marker.value}`} /> : <span key={marker.key} className="production-marker" data-resource-key={marker.key} style={{ left: `${pos.left + offset[0]}%`, top: `${pos.top + offset[1]}%`, zIndex: 10 + group.indexOf(marker), backgroundPosition: trackMarkerSpritePosition(marker.key as Resource) }} title={`${marker.label}：${marker.value}`} aria-label={`${marker.label} ${marker.value}`} data-marker-label={marker.label} />;
-  })}{player.scores.x !== undefined && flightScoreIndex !== 0 && <ScoreDisc index={0} label="A 类计分" />}{player.scores.resource.map((resource: Resource | null) => { const index = resource ? 1 + resources.indexOf(resource) : -1; return resource && flightScoreIndex !== index && <ScoreDisc key={`resource-${resource}`} index={index} label={`C 类 · ${resourceLabels[resource]}`} />; })}{player.scores.monk.map((used: boolean, i: number) => used && flightScoreIndex !== 6 + i && <ScoreDisc key={`monk-${i}`} index={6 + i} label="B 类 · 僧侣图标" />)}{privilegeCardPositions.map((position, i) => <img key={`privilege-target-${i}`} data-privilege-target-index={i} className="board-privilege-card board-privilege-target" src="/Images/privilege_card_front_A.png" style={{ left: `${position.left}%`, top: `${position.top}%`, height: `${position.height}%` }} alt="" aria-hidden="true" />)}{player.privilegePairs.map((card: string | null, i: number) => card && card !== 'skip' && !pieceFlights.some(flight => flight.kind === 'privilege-card' && flight.playerIndex === playerIndex && flight.pairIndex === i) && <img key={`privilege-${i}`} className="board-privilege-card" src={`/Images/privilege_card_front_${card}.png`} style={{ left: `${privilegeCardPositions[i].left}%`, top: `${privilegeCardPositions[i].top}%`, height: `${privilegeCardPositions[i].height}%` }} title={`第 ${i + 1} 组：特权卡 ${card}`} alt={`第 ${i + 1} 组特权卡 ${card}`} />)}{scoreTargetIndices.map(index => { const point = scoringDiscPositions[index], isMonk = index >= 6, label = index === 0 ? 'A 类' : index <= 5 ? resourceLabels[resources[index - 1]] : '僧侣图标'; return <button key={`score-target-${index}`} type="button" className={`score-disc-target ${isMonk ? 'monk' : 'hex'}`} data-score-target-index={index} style={{ left: `${point.left}%`, top: `${point.top}%` }} title={`点击放置${label}计分圆片`} aria-label={`点击放置${label}计分圆片`} onClick={() => onScoreTarget(index)} />; })}</div>;
+  })}{player.scores.x !== undefined && flightScoreIndex !== 0 && <ScoreDisc index={0} label={`A 类 · 产值 ${player.scores.x}`} value={player.scores.x} />}{player.scores.resource.map((resource: Resource | null) => { const index = resource ? 1 + resources.indexOf(resource) : -1; return resource && flightScoreIndex !== index && <ScoreDisc key={`resource-${resource}`} index={index} label={`C 类 · ${resourceLabels[resource]}`} />; })}{player.scores.monk.map((used: boolean, i: number) => used && flightScoreIndex !== 6 + i && <ScoreDisc key={`monk-${i}`} index={6 + i} label="B 类 · 僧侣图标" />)}{privilegeCardPositions.map((position, i) => <img key={`privilege-target-${i}`} data-privilege-target-index={i} className="board-privilege-card board-privilege-target" src="/Images/privilege_card_front_A.png" style={{ left: `${position.left}%`, top: `${position.top}%`, height: `${position.height}%` }} alt="" aria-hidden="true" />)}{player.privilegePairs.map((card: string | null, i: number) => card && card !== 'skip' && !pieceFlights.some(flight => flight.kind === 'privilege-card' && flight.playerIndex === playerIndex && flight.pairIndex === i) && <img key={`privilege-${i}`} className="board-privilege-card" src={`/Images/privilege_card_front_${card}.png`} style={{ left: `${privilegeCardPositions[i].left}%`, top: `${privilegeCardPositions[i].top}%`, height: `${privilegeCardPositions[i].height}%` }} title={`第 ${i + 1} 组：特权卡 ${card}`} alt={`第 ${i + 1} 组特权卡 ${card}`} />)}{scoreTargetIndices.map(index => { const point = scoringDiscPositions[index], isMonk = index >= 6, label = index === 0 ? 'A 类' : index <= 5 ? resourceLabels[resources[index - 1]] : '僧侣图标'; return <button key={`score-target-${index}`} type="button" className={`score-disc-target ${isMonk ? 'monk' : 'hex'}`} data-score-target-index={index} style={{ left: `${point.left}%`, top: `${point.top}%` }} title={`点击放置${label}计分圆片`} aria-label={`点击放置${label}计分圆片`} onClick={() => onScoreTarget(index)} />; })}</div>;
 }
-function ScoreDisc({ index, label }: { index: number; label: string }) {
+function ScoreDisc({ index, label, value }: { index: number; label: string; value?: number }) {
   const point = scoringDiscPositions[index];
-  return <img className="player-score-disc" src="/Images/scoring_disc.png" style={{ left: `${point.left}%`, top: `${point.top}%` }} title={label} aria-label={label} alt="紫色计分圆片" />;
+  return <span className="player-score-disc-wrap" style={{ left: `${point.left}%`, top: `${point.top}%` }} title={label} aria-label={label}><img className="player-score-disc" src="/Images/scoring_disc.png" alt="紫色计分圆片" />{value !== undefined && <b className="player-score-disc-value">{value}</b>}</span>;
 }
 function shedChoiceInstruction(choice: ShedChoice) {
   if (choice.mode === 'one') return '任选 1 块';

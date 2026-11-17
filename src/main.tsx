@@ -12,7 +12,7 @@ import './readable-text.css';
 
 type AnyClient = ReturnType<typeof Client>;
 type MotionPoint = { x: number; y: number };
-type MovementTrail = { id: string; pathPoints: MotionPoint[]; durationMs: number; started: boolean };
+type MovementTrail = { id: string; kind: PieceFlight['kind']; playerIndex?: number; resourceKey?: Resource; pathPoints: MotionPoint[]; durationMs: number; started: boolean };
 type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean };
 function smoothMotionPath(points: MotionPoint[]) {
   if (!points.length) return '';
@@ -789,14 +789,24 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
         : Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165))
       : kind === 'coin' ? 680 : 980;
     const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };
+    const reversingStepUndo = undoStepTargetStateIdRef.current === state._stateID;
+    const pathPoints = flight.pathPoints;
     setPieceFlights(current => [...current, flight]);
-    if (flight.pathPoints && flight.pathPoints.length > 1) setMovementTrails(current => [...current, { id, pathPoints: flight.pathPoints!, durationMs, started: false }]);
+    if (pathPoints && pathPoints.length > 1) setMovementTrails(current => [...current, { id, kind, playerIndex: flight.playerIndex, resourceKey: flight.resourceKey, pathPoints, durationMs, started: false }]);
     requestAnimationFrame(() => requestAnimationFrame(() => {
       setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item));
       setMovementTrails(current => current.map(item => item.id === id ? { ...item, started: true } : item));
     }));
     const duration = flight.durationMs ?? 980, delay = data.delayMs ?? 0, total = duration + delay + 140;
-    window.setTimeout(() => setPieceFlights(current => current.filter(item => item.id !== id)), total);
+    window.setTimeout(() => {
+      setPieceFlights(current => current.filter(item => item.id !== id));
+      if (reversingStepUndo && flight.pathPoints?.length) setMovementTrails(current => {
+        const first = flight.pathPoints![0], last = flight.pathPoints![flight.pathPoints!.length - 1];
+        const close = (a: MotionPoint, b: MotionPoint) => Math.hypot(a.x - b.x, a.y - b.y) <= 14;
+        const reversedTrail = [...current].reverse().find(trail => trail.id !== id && trail.kind === kind && trail.playerIndex === flight.playerIndex && trail.resourceKey === flight.resourceKey && close(trail.pathPoints[0], last) && close(trail.pathPoints[trail.pathPoints.length - 1], first));
+        return reversedTrail ? current.filter(trail => trail.id !== id && trail.id !== reversedTrail.id) : current;
+      });
+    }, total);
     return total;
   };
   const startPieceFlightFromRects = (kind: PieceFlight['kind'], from: { left: number; top: number; width: number; height: number }, target: { left: number; top: number; width: number; height: number }, data: Partial<PieceFlight> = {}) => {
@@ -809,14 +819,24 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
         : Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165))
       : 980;
     const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };
+    const reversingStepUndo = undoStepTargetStateIdRef.current === state._stateID;
+    const pathPoints = flight.pathPoints;
     setPieceFlights(current => [...current, flight]);
-    if (flight.pathPoints && flight.pathPoints.length > 1) setMovementTrails(current => [...current, { id, pathPoints: flight.pathPoints!, durationMs, started: false }]);
+    if (pathPoints && pathPoints.length > 1) setMovementTrails(current => [...current, { id, kind, playerIndex: flight.playerIndex, resourceKey: flight.resourceKey, pathPoints, durationMs, started: false }]);
     requestAnimationFrame(() => requestAnimationFrame(() => {
       setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item));
       setMovementTrails(current => current.map(item => item.id === id ? { ...item, started: true } : item));
     }));
     const duration = flight.durationMs ?? 980, delay = data.delayMs ?? 0, total = duration + delay + 140;
-    window.setTimeout(() => setPieceFlights(current => current.filter(item => item.id !== id)), total);
+    window.setTimeout(() => {
+      setPieceFlights(current => current.filter(item => item.id !== id));
+      if (reversingStepUndo && flight.pathPoints?.length) setMovementTrails(current => {
+        const first = flight.pathPoints![0], last = flight.pathPoints![flight.pathPoints!.length - 1];
+        const close = (a: MotionPoint, b: MotionPoint) => Math.hypot(a.x - b.x, a.y - b.y) <= 14;
+        const reversedTrail = [...current].reverse().find(trail => trail.id !== id && trail.kind === kind && trail.playerIndex === flight.playerIndex && trail.resourceKey === flight.resourceKey && close(trail.pathPoints[0], last) && close(trail.pathPoints[trail.pathPoints.length - 1], first));
+        return reversedTrail ? current.filter(trail => trail.id !== id && trail.id !== reversedTrail.id) : current;
+      });
+    }, total);
     return total;
   };
   const animateMeepleMove = (playerIndex: number, targetTrackIndex?: number, targetStartSlot?: number) => {

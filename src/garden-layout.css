@@ -272,6 +272,11 @@
 .tile-flight{position:fixed;z-index:30;pointer-events:none;transform-origin:center center;filter:drop-shadow(0 3px 6px #000b);will-change:transform}
 .tile-flight.flight-meeple,.tile-flight.flight-resource-marker,.tile-flight.flight-brewer-marker{transform:none}
 .tile-flight.is-moving{animation:tile-flight-motion 980ms cubic-bezier(.2,.72,.22,1) both;animation-delay:var(--flight-delay,0ms)}
+.tile-flight.path-moving{animation:none!important}
+.movement-trail{position:fixed;inset:0;z-index:29;width:100vw;height:100vh;overflow:visible;pointer-events:none}
+.movement-trail-line{fill:none;stroke:#ec463d;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;vector-effect:non-scaling-stroke;filter:drop-shadow(0 1px 2px #090c0acc);animation:movement-trail-draw var(--flight-duration,980ms) linear forwards}
+.movement-trail-arrow{fill:#ec463d;stroke:#541812;stroke-width:1.5;stroke-linejoin:round;filter:drop-shadow(0 1px 2px #090c0acc)}
+@keyframes movement-trail-draw{to{stroke-dashoffset:0}}
 .tile-flight .tile-image{width:100%;height:100%;max-width:none;max-height:none}
 .tile-flight.flight-privilege-card{clip-path:inset(0 0 0 18%)}
 .tile-flight.flight-privilege-card>img{object-fit:contain;filter:drop-shadow(0 2px 3px #080b08)}

@@ -764,7 +764,11 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const from = size ? { left: sourceRect.left + sourceRect.width / 2 - size / 2, top: sourceRect.top + sourceRect.height / 2 - size / 2, width: size, height: size } : sourceRect;
     const scale = Math.min(target.width / from.width, target.height / from.height);
     const id = `${kind}-${Date.now()}-${Math.random()}`;
-    const durationMs = data.pathPoints?.length ? Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165)) : kind === 'coin' ? 680 : 980;
+    const durationMs = data.pathPoints?.length
+      ? kind === 'meeple'
+        ? Math.min(1500, Math.max(350, (data.pathPoints.length - 1) * 85))
+        : Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165))
+      : kind === 'coin' ? 680 : 980;
     const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };
     setPieceFlights(current => [...current, flight]);
     if (flight.pathPoints && flight.pathPoints.length > 1) setMovementTrails(current => [...current, { id, pathPoints: flight.pathPoints!, durationMs, started: false }]);
@@ -780,7 +784,11 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     if (from.width < 2 || from.height < 2 || target.width < 2 || target.height < 2) return 0;
     const scale = Math.min(target.width / from.width, target.height / from.height);
     const id = `${kind}-${Date.now()}-${Math.random()}`;
-    const durationMs = data.pathPoints?.length ? Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165)) : 980;
+    const durationMs = data.pathPoints?.length
+      ? kind === 'meeple'
+        ? Math.min(1500, Math.max(350, (data.pathPoints.length - 1) * 85))
+        : Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165))
+      : 980;
     const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };
     setPieceFlights(current => [...current, flight]);
     if (flight.pathPoints && flight.pathPoints.length > 1) setMovementTrails(current => [...current, { id, pathPoints: flight.pathPoints!, durationMs, started: false }]);

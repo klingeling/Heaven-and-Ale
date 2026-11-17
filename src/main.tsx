@@ -11,7 +11,8 @@ import './garden-layout.css';
 import './readable-text.css';
 
 type AnyClient = ReturnType<typeof Client>;
-type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; started: boolean };
+type MotionPoint = { x: number; y: number };
+type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean };
 const gameName = 'heaven-and-ale';
 const BOT_AFTER_ANIMATION_PAUSE_MS = 500;
 const meepleSpriteColorIndex: Record<string, number> = { black: 0, yellow: 1, blue: 2, red: 3 };
@@ -556,6 +557,28 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const lastPlacedExpansionStoreId = React.useRef<number | null>(null);
   const [selectedExpansionCargoKind, setSelectedExpansionCargoKind] = useState<ExpansionCargo | null>(null);
   const [pieceFlights, setPieceFlights] = useState<PieceFlight[]>([]);
+  const pathAnimationsRef = React.useRef(new Map<string, Animation>());
+  useLayoutEffect(() => {
+    const liveIds = new Set(pieceFlights.map(flight => flight.id));
+    for (const [id, animation] of pathAnimationsRef.current) {
+      if (!liveIds.has(id)) { animation.cancel(); pathAnimationsRef.current.delete(id); }
+    }
+    for (const flight of pieceFlights) {
+      if (!flight.started || !flight.pathPoints || flight.pathPoints.length < 2 || pathAnimationsRef.current.has(flight.id)) continue;
+      const element = [...document.querySelectorAll<HTMLElement>('[data-piece-flight-id]')].find(item => item.dataset.pieceFlightId === flight.id);
+      if (!element) continue;
+      const first = flight.pathPoints[0];
+      const frames: Keyframe[] = flight.pathPoints.map((point, index) => {
+        const progress = index / (flight.pathPoints!.length - 1);
+        return {
+          transform: `translate(${point.x - first.x}px, ${point.y - first.y}px) scale(${1 + (flight.scale - 1) * progress})`,
+          offset: progress,
+        };
+      });
+      const animation = element.animate(frames, { duration: flight.durationMs ?? 980, delay: flight.delayMs ?? 0, easing: 'linear', fill: 'both' });
+      pathAnimationsRef.current.set(flight.id, animation);
+    }
+  }, [pieceFlights]);
   const [deferredGameAction, setDeferredGameAction] = useState<'undoStep' | 'undoAction' | 'confirmAction' | null>(null);
   const deferredGameActionRef = React.useRef<typeof deferredGameAction>(null);
   const [scoreChoice, setScoreChoice] = useState<string>('1');
@@ -728,10 +751,11 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     if (from.width < 2 || from.height < 2 || target.width < 2 || target.height < 2) return 0;
     const scale = Math.min(target.width / from.width, target.height / from.height);
     const id = `${kind}-${Date.now()}-${Math.random()}`;
-    const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, started: false, ...data };
+    const durationMs = data.pathPoints?.length ? Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165)) : 980;
+    const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };
     setPieceFlights(current => [...current, flight]);
     requestAnimationFrame(() => requestAnimationFrame(() => setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item))));
-    const duration = kind === 'coin' ? 680 : 980, delay = data.delayMs ?? 0, total = duration + delay + 140;
+    const duration = flight.durationMs ?? 980, delay = data.delayMs ?? 0, total = duration + delay + 140;
     window.setTimeout(() => setPieceFlights(current => current.filter(item => item.id !== id)), total);
     return total;
   };
@@ -749,7 +773,16 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       if (rect) { const width = sourceRect?.width ?? rect.width * .32, height = sourceRect?.height ?? rect.height * .74; targetRect = { left: rect.left + (rect.width - width) / 2, top: rect.top + (rect.height - height) / 2, width, height }; }
     }
     if (!source || !sourceRect || !targetRect) return 0;
-    return startPieceFlight('meeple', source, targetRect, { playerIndex, playerName: player.name, playerColor: player.color, targetTrackIndex, targetStartSlot });
+    let pathPoints: MotionPoint[] | undefined;
+    if (targetTrackIndex !== undefined) {
+      pathPoints = [{ x: sourceRect.left + sourceRect.width / 2, y: sourceRect.top + sourceRect.height / 2 }];
+      const step = player.position < targetTrackIndex ? 1 : -1;
+      for (let index = player.position < 0 ? 0 : player.position + step; step > 0 ? index <= targetTrackIndex : index >= targetTrackIndex; index += step) {
+        const rect = document.querySelector<HTMLElement>(`[data-track-index="${index}"]`)?.getBoundingClientRect();
+        if (rect) pathPoints.push({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+      }
+    }
+    return startPieceFlight('meeple', source, targetRect, { playerIndex, playerName: player.name, playerColor: player.color, targetTrackIndex, targetStartSlot, pathPoints });
   };
   const markerSnapshotRef = React.useRef<any[] | null>(null);
   useLayoutEffect(() => {
@@ -762,17 +795,42 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       const old = previous[playerIndex], now = current[playerIndex];
       const board = document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${playerIndex}"]`), rect = board?.getBoundingClientRect();
       if (!rect) continue;
-      const markerRect = (value: number, widthRatio: number, heightRatio: number) => {
+      const markerRect = (value: number, widthRatio: number, heightRatio: number, offset: [number, number] = [0, 0]) => {
         const point = productionTrackPositions[value]; if (!point) return null;
         const width = rect.width * widthRatio, height = rect.height * heightRatio;
-        return { left: rect.left + rect.width * point.left / 100 - width / 2, top: rect.top + rect.height * point.top / 100 - height / 2, width, height };
+        return { left: rect.left + rect.width * (point.left + offset[0]) / 100 - width / 2, top: rect.top + rect.height * (point.top + offset[1]) / 100 - height / 2, width, height };
+      };
+      const markerOffset = (key: Resource | 'brewer', value: number, snapshot: typeof current[number]) => {
+        const markers = [...resources.map(resource => ({ key: resource, value: snapshot.tracks[resource] })), { key: 'brewer' as const, value: snapshot.brewer }];
+        const group = markers.filter(marker => marker.value === value);
+        return markerClusterOffset(group.findIndex(marker => marker.key === key), group.length);
+      };
+      const markerMotion = (key: Resource | 'brewer', fromValue: number, toValue: number, widthRatio: number, heightRatio: number) => {
+        const from = markerRect(fromValue, widthRatio, heightRatio, markerOffset(key, fromValue, old));
+        const to = markerRect(toValue, widthRatio, heightRatio, markerOffset(key, toValue, now));
+        if (!from || !to) return null;
+        const center = (value: number, offset: [number, number]) => {
+          const position = markerRect(value, widthRatio, heightRatio, offset);
+          return position ? { x: position.left + position.width / 2, y: position.top + position.height / 2 } : null;
+        };
+        const points: MotionPoint[] = [{ x: from.left + from.width / 2, y: from.top + from.height / 2 }];
+        const step = fromValue < toValue ? 1 : -1;
+        for (let value = fromValue + step; step > 0 ? value <= toValue : value >= toValue; value += step) {
+          const offset = value === toValue ? markerOffset(key, value, now) : [0, 0] as [number, number];
+          const point = center(value, offset);
+          if (point) points.push(point);
+        }
+        return { from, to, pathPoints: points };
       };
       resources.forEach(resource => {
-        const from = markerRect(old.tracks[resource], .05, .05), to = markerRect(now.tracks[resource], .05, .05);
-        if (from && to && old.tracks[resource] !== now.tracks[resource]) startPieceFlightFromRects('resource-marker', from, to, { playerIndex, resourceKey: resource });
+        if (old.tracks[resource] === now.tracks[resource]) return;
+        const motion = markerMotion(resource, old.tracks[resource], now.tracks[resource], .06, .06);
+        if (motion) startPieceFlightFromRects('resource-marker', motion.from, motion.to, { playerIndex, resourceKey: resource, pathPoints: motion.pathPoints });
       });
-      const brewerFrom = markerRect(old.brewer, .135, .18), brewerTo = markerRect(now.brewer, .135, .18);
-      if (brewerFrom && brewerTo && old.brewer !== now.brewer) startPieceFlightFromRects('brewer-marker', brewerFrom, brewerTo, { playerIndex, playerColor: G.players[playerIndex].color });
+      if (old.brewer !== now.brewer) {
+        const motion = markerMotion('brewer', old.brewer, now.brewer, .06, .09);
+        if (motion) startPieceFlightFromRects('brewer-marker', motion.from, motion.to, { playerIndex, playerColor: G.players[playerIndex].color, pathPoints: motion.pathPoints });
+      }
     }
   }, [state._stateID, viewingPlayerIndex]);
   const expansionSnapshotRef = React.useRef<any>(null);
@@ -810,6 +868,18 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       if (!rect || !location) return null;
       const diameter = Math.min(size, rect.width * .12);
       return { left: rect.left + rect.width * location.left / 100 - diameter / 2, top: rect.top + rect.height * location.top / 100 - diameter / 2, width: diameter, height: diameter };
+    };
+    const routeMotion = (playerIndex: number, fromIndex: number, toIndex: number) => {
+      const firstRect = routeRect(playerIndex, fromIndex, 38), lastRect = routeRect(playerIndex, toIndex, 38);
+      if (!firstRect || !lastRect) return null;
+      const points: MotionPoint[] = [{ x: firstRect.left + firstRect.width / 2, y: firstRect.top + firstRect.height / 2 }];
+      let index = fromIndex;
+      for (let step = 0; step < cartRoute.length && index !== toIndex; step++) {
+        index = (index + 1) % cartRoute.length;
+        const rect = routeRect(playerIndex, index, 38);
+        if (rect) points.push({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+      }
+      return { from: firstRect, to: lastRect, pathPoints: points };
     };
     const trackCargoRect = (spaceIndex: number, kind: ExpansionCargo) => {
       const selector = kind === 'barrel'
@@ -894,8 +964,8 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       }
 
       if (old.cartPosition !== now.cartPosition) {
-        const from = routeRect(playerIndex, old.cartPosition, 38), to = routeRect(playerIndex, now.cartPosition, 38);
-        if (from && to) startPieceFlightFromRects('cart', from, to, { playerIndex, cargoCount: now.cartBarrels, targetRouteIndex: now.cartPosition });
+        const motion = routeMotion(playerIndex, old.cartPosition, now.cartPosition);
+        if (motion) startPieceFlightFromRects('cart', motion.from, motion.to, { playerIndex, cargoCount: now.cartBarrels, targetRouteIndex: now.cartPosition, pathPoints: motion.pathPoints });
       }
 
       now.breweryDeliveries.forEach((count: number, breweryIndex: number) => {
@@ -1241,7 +1311,19 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''}`}>
     {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />}
     {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />)}
-    {pieceFlights.map(flight => <div key={flight.id} className={`tile-flight ${flight.started ? 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, backgroundPosition: flight.kind === 'resource-marker' ? trackMarkerSpritePosition(flight.resourceKey!) : flight.kind === 'brewer-marker' ? meepleSpritePosition(flight.playerColor || 'black') : flight.kind === 'meeple' ? meepleSpritePosition(flight.playerColor || 'black') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <BarrelGoalArt id={flight.barrelId || 0} /> : flight.kind === 'expansion-cargo' ? flight.cargoKind === 'barrel' ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="" /> : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="" /> : flight.kind === 'cart' ? <span className="transport-cart-marker flight-cart-marker">{(flight.cargoCount ?? 0) > 0 && <span className="cart-cargo-stack">{Array.from({ length: flight.cargoCount ?? 0 }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="" /></span> : flight.kind === 'die' ? <DiceFace value={flight.dieValue ?? 1} /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : flight.kind === 'store-card' ? <img src={`/Images/store_${flight.storeId}.png`} alt="" /> : null}</div>)}
+    {pieceFlights.map(flight => {
+      const pathPoints = flight.pathPoints;
+      const pathData = pathPoints?.length ? pathPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ') : '';
+      return <React.Fragment key={flight.id}>
+        {flight.started && pathData && <svg className="movement-trail" viewBox={`0 0 ${window.innerWidth} ${window.innerHeight}`} preserveAspectRatio="none" aria-hidden="true">
+          <path className="movement-trail-line" d={pathData} pathLength={1} style={{ ['--flight-duration' as any]: `${flight.durationMs ?? 980}ms` }} />
+          <polygon className="movement-trail-arrow" points="-12,-8 12,0 -12,8">
+            <animateMotion dur={`${flight.durationMs ?? 980}ms`} path={pathData} rotate="auto" fill="freeze" />
+          </polygon>
+        </svg>}
+        <div data-piece-flight-id={flight.id} className={`tile-flight ${flight.started ? flight.pathPoints ? 'path-moving' : 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, ['--flight-duration' as any]: `${flight.durationMs ?? 980}ms`, backgroundPosition: flight.kind === 'resource-marker' ? trackMarkerSpritePosition(flight.resourceKey!) : flight.kind === 'brewer-marker' ? meepleSpritePosition(flight.playerColor || 'black') : flight.kind === 'meeple' ? meepleSpritePosition(flight.playerColor || 'black') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <BarrelGoalArt id={flight.barrelId || 0} /> : flight.kind === 'expansion-cargo' ? flight.cargoKind === 'barrel' ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="" /> : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="" /> : flight.kind === 'cart' ? <span className="transport-cart-marker flight-cart-marker">{(flight.cargoCount ?? 0) > 0 && <span className="cart-cargo-stack">{Array.from({ length: flight.cargoCount ?? 0 }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="" /></span> : flight.kind === 'die' ? <DiceFace value={flight.dieValue ?? 1} /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : flight.kind === 'store-card' ? <img src={`/Images/store_${flight.storeId}.png`} alt="" /> : null}</div>
+      </React.Fragment>;
+    })}
     <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div>{G.expansionEnabled && <span className="expansion-room-badge">扩展对局</span>}<div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div>{G.phase === 'finished' && <button className="icon-btn final-score-reopen" onClick={() => setShowFinalScore(true)}>最终计分</button>}<button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{G.phase !== 'finished' && !isLocal && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number((client as any).playerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{G.phase !== 'finished' && isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
     {G.phase !== 'finished' && !isLocal && roomCode && onlineVoteState.votes.length > 0 && <div className="abandon-vote-progress"><b>放弃游戏投票 · {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</b><span>{humanPlayerSeats.map(seat => `${G.players[seat].name}：${onlineVoteState.votes.includes(seat) ? '已投票' : '未投票'}`).join('　')}</span></div>}
     {G.phase !== 'finished' && !isLocal && onlineVoteState.passed && <div className="abandon-vote-banner"><b>所有真人玩家已同意，正在删除本局和记录。</b>{isRoomHost && <button className="btn btn-gold" onClick={onLeaveAbandoned}>重试删除</button>}</div>}

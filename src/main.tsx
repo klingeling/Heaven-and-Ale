@@ -16,13 +16,24 @@ type MovementTrail = { id: string; pathPoints: MotionPoint[]; durationMs: number
 type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean };
 function smoothMotionPath(points: MotionPoint[]) {
   if (!points.length) return '';
-  let path = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
-  if (points.length === 2) return `${path} L ${points[1].x.toFixed(1)} ${points[1].y.toFixed(1)}`;
-  for (let index = 0; index < points.length - 1; index++) {
-    const previous = points[Math.max(0, index - 1)];
-    const start = points[index];
-    const end = points[index + 1];
-    const next = points[Math.min(points.length - 1, index + 2)];
+  let smoothPoints = points.map(point => ({ ...point }));
+  // Coordinates come from board artwork and can be a little uneven. Smooth
+  // intermediate waypoints while pinning the true start and destination.
+  for (let pass = 0; pass < 2 && smoothPoints.length > 2; pass++) {
+    const current = smoothPoints;
+    smoothPoints = current.map((point, index) => {
+      if (index === 0 || index === current.length - 1) return point;
+      const previous = current[index - 1], next = current[index + 1];
+      return { x: previous.x * .2 + point.x * .6 + next.x * .2, y: previous.y * .2 + point.y * .6 + next.y * .2 };
+    });
+  }
+  let path = `M ${smoothPoints[0].x.toFixed(1)} ${smoothPoints[0].y.toFixed(1)}`;
+  if (smoothPoints.length === 2) return `${path} L ${smoothPoints[1].x.toFixed(1)} ${smoothPoints[1].y.toFixed(1)}`;
+  for (let index = 0; index < smoothPoints.length - 1; index++) {
+    const previous = smoothPoints[Math.max(0, index - 1)];
+    const start = smoothPoints[index];
+    const end = smoothPoints[index + 1];
+    const next = smoothPoints[Math.min(smoothPoints.length - 1, index + 2)];
     const control1 = { x: start.x + (end.x - previous.x) / 6, y: start.y + (end.y - previous.y) / 6 };
     const control2 = { x: end.x - (next.x - start.x) / 6, y: end.y - (next.y - start.y) / 6 };
     path += ` C ${control1.x.toFixed(1)} ${control1.y.toFixed(1)}, ${control2.x.toFixed(1)} ${control2.y.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;

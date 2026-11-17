@@ -101,8 +101,8 @@
 .score-category-picker{margin-bottom:3px}
 .score-picker button:disabled{opacity:.38;cursor:not-allowed}
 .start-resource-picker{justify-content:center;gap:4px;flex-wrap:nowrap}
-.start-resource-picker button{display:flex;flex:0 0 56px;flex-direction:column;align-items:center;justify-content:center;gap:0;width:56px;height:60px;padding:1px}
-.start-resource-picker button img{display:block;flex:none;width:42px;height:42px;object-fit:contain;object-position:center}
+.start-resource-picker button{display:flex;flex:0 0 56px;flex-direction:column;align-items:center;justify-content:center;gap:0;width:56px;height:62px;padding:0}
+.start-resource-picker button img{display:block;flex:none;width:48px;height:48px;object-fit:contain;object-position:center}
 .start-resource-picker button span{display:block;width:100%;text-align:center;font-size:9px;line-height:1.1;white-space:nowrap}
 .finish-purchase{height:31px;margin:6px 0 0 auto;padding:0 12px;font-size:9px}
 .privileges .privilege{display:grid;grid-template-rows:1fr 20px;min-width:0;height:83px}

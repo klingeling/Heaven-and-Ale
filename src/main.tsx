@@ -574,6 +574,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const [selectedExpansionCargoKind, setSelectedExpansionCargoKind] = useState<ExpansionCargo | null>(null);
   const [pieceFlights, setPieceFlights] = useState<PieceFlight[]>([]);
   const [movementTrails, setMovementTrails] = useState<MovementTrail[]>([]);
+  const reverseCartMotionRef = React.useRef(false);
   const previousConfirmationKindRef = React.useRef(G.confirmationKind);
   useEffect(() => {
     const previous = previousConfirmationKindRef.current;
@@ -732,6 +733,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const selectedTile = market?.find(tile => tile.id === selectedTileId) ?? market?.[0];
   const canPlace = canControlTurn && isViewingCurrent && !expansionStorePrompt && !!action && !action.baseDone && ['resource', 'monk'].includes(action.type) && !!selectedTile;
   const executeGameAction = (kind: 'undoStep' | 'undoAction' | 'confirmAction') => {
+    if (kind !== 'confirmAction') reverseCartMotionRef.current = true;
     if (kind === 'undoStep') moves.undoStep();
     else if (kind === 'undoAction') moves.undoAction();
     else moves.confirmAction();
@@ -910,13 +912,15 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       const diameter = Math.min(size, rect.width * .12);
       return { left: rect.left + rect.width * location.left / 100 - diameter / 2, top: rect.top + rect.height * location.top / 100 - diameter / 2, width: diameter, height: diameter };
     };
-    const routeMotion = (playerIndex: number, fromIndex: number, toIndex: number) => {
+    const reverseCartMotion = reverseCartMotionRef.current;
+    reverseCartMotionRef.current = false;
+    const routeMotion = (playerIndex: number, fromIndex: number, toIndex: number, reverse = false) => {
       const firstRect = routeRect(playerIndex, fromIndex, 38), lastRect = routeRect(playerIndex, toIndex, 38);
       if (!firstRect || !lastRect) return null;
       const points: MotionPoint[] = [{ x: firstRect.left + firstRect.width / 2, y: firstRect.top + firstRect.height / 2 }];
       let index = fromIndex;
       for (let step = 0; step < cartRoute.length && index !== toIndex; step++) {
-        index = (index + 1) % cartRoute.length;
+        index = (index + (reverse ? -1 : 1) + cartRoute.length) % cartRoute.length;
         const rect = routeRect(playerIndex, index, 38);
         if (rect) points.push({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
       }
@@ -1005,7 +1009,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       }
 
       if (old.cartPosition !== now.cartPosition) {
-        const motion = routeMotion(playerIndex, old.cartPosition, now.cartPosition);
+        const motion = routeMotion(playerIndex, old.cartPosition, now.cartPosition, reverseCartMotion);
         if (motion) startPieceFlightFromRects('cart', motion.from, motion.to, { playerIndex, cargoCount: now.cartBarrels, targetRouteIndex: now.cartPosition, pathPoints: motion.pathPoints });
       }
 

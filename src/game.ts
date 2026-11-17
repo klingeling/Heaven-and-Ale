@@ -929,6 +929,15 @@ function settleHuts(G: AleState, p: PlayerState) {
       const brewerAdvance = range === 0 ? 6 : range === 1 ? 3 : range <= 3 ? 1 : 0;
       const activateCount = range === 0 ? 0 : range === 1 ? 1 : range === 2 ? 2 : range === 3 ? 3 : 4;
       const mode = range === 1 ? 'one' : range === 2 ? 'opposite' : range === 3 ? 'nonAdjacent' : 'any';
+      let defaultSelection: number[] = [];
+      if (mode === 'opposite' && neighbors.every(index => p.board[index].side === 'shade' && !!p.board[index].tile?.resource)) {
+        let bestCoins = -1;
+        for (let pair = 0; pair < 3; pair++) {
+          const selection = [neighbors[pair], neighbors[pair + 3]];
+          const coins = selection.reduce((sum, index) => sum + (p.board[index].tile?.value ?? 0), 0);
+          if (coins > bestCoins) { bestCoins = coins; defaultSelection = selection; }
+        }
+      }
       p.brewer = Math.min(20, p.brewer + brewerAdvance);
       hut.completed = true; hut.shedType = range; hut.shedValue = value;
       if (G.expansionEnabled && G.expansion) {
@@ -937,7 +946,7 @@ function settleHuts(G: AleState, p: PlayerState) {
         if (tileId && !G.expansion.players[playerIndex].hutStoreUsed[hutSlot]) G.expansion.storePrompts.push({ playerIndex, hutIndex: i, tileId });
       }
       G.log.unshift(`${p.name} 围住棚屋，周围产值 ${value}：酿酒师推进 ${brewerAdvance} 格，可激活 ${activateCount} 块相邻板块。`);
-      if (activateCount > 0) G.shedChoices.push({ hutIndex: i, value, brewerAdvance, activateCount, mode, candidates: neighbors, selected: [] });
+      if (activateCount > 0) G.shedChoices.push({ hutIndex: i, value, brewerAdvance, activateCount, mode, candidates: neighbors, selected: defaultSelection });
     }
   });
 }

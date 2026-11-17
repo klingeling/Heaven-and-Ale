@@ -122,10 +122,10 @@ export const barrelTokenPositions = [
   [1515, 590],
 ].map(([x, y]) => ({ left: x / 1904 * 100, top: y / 1176 * 100 }));
 export const startSlots = [
-  { label: '首位玩家', reward: '无奖励', ...point(205, 151) },
-  { label: '钱币', reward: '+2钱币', ...point(76, 151) },
-  { label: '酿酒师', reward: '酿酒师+1', ...point(135, 64) },
-  { label: '资源', reward: '任一资源+2', ...point(135, 245) },
+  { label: '首位玩家', reward: '无奖励', ...point(220, 165) },
+  { label: '钱币', reward: '+2钱币', ...point(80, 165) },
+  { label: '酿酒师', reward: '酿酒师+1', ...point(145, 80) },
+  { label: '资源', reward: '任一资源+2', ...point(142, 240) },
 ];
 const route = [
   resourcesOnRoute[0], resourcesOnRoute[1], monksOnRoute[0], scoresOnRoute[0], resourcesOnRoute[2], resourcesOnRoute[3], scoresOnRoute[1], resourcesOnRoute[4], resourcesOnRoute[5],

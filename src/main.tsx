@@ -817,7 +817,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const id = `${kind}-${Date.now()}-${Math.random()}`;
     const durationMs = data.pathPoints?.length
       ? kind === 'meeple'
-        ? Math.min(1000, Math.max(280, (data.pathPoints.length - 1) * 55))
+        ? Math.min(500, Math.max(160, (data.pathPoints.length - 1) * 28))
         : Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165))
       : kind === 'coin' ? 680 : 980;
     const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };
@@ -839,7 +839,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const id = `${kind}-${Date.now()}-${Math.random()}`;
     const durationMs = data.pathPoints?.length
       ? kind === 'meeple'
-        ? Math.min(1000, Math.max(280, (data.pathPoints.length - 1) * 55))
+        ? Math.min(500, Math.max(160, (data.pathPoints.length - 1) * 28))
         : Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165))
       : 980;
     const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };

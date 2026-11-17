@@ -1093,6 +1093,10 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const animateBotMove = (decision: { name: string; args: unknown[] }, current: any) => {
     const playerIndex = Number(current.ctx.currentPlayer), player = current.G.players[playerIndex];
     if (isLocal && botSeats.includes(playerIndex) && current.G.expansionEnabled && ['takeExpansionCargo', 'chooseExpansionCartLoad', 'useExpansionCart', 'resolveExpansionStore'].includes(decision.name)) setViewingPlayerIndex(playerIndex);
+    if (decision.name === 'assignExpansionStoreLayout') {
+      const tileIds = decision.args[0] as number[], hutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+      return tileIds.reduce((duration, tileId, slot) => Math.max(duration, animateStorePlacement(playerIndex, tileId, hutIndexes[slot])), 0);
+    }
     if (decision.name === 'assignExpansionStoreTile') {
       const hutIndex = Number(decision.args[0]), tileId = Number(decision.args[1]);
       let duration = animateStorePlacement(playerIndex, tileId, hutIndex);
@@ -1346,6 +1350,10 @@ function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove 
             (client as any).moves[decision.name]?.(...decision.args);
           }
         };
+        if (current.G.phase === 'setup' && current.G.setupStage === 'expansion-stores') {
+          finish(chooseBotMove(current.G, current.ctx.currentPlayer, difficulty));
+          return;
+        }
         worker = new Worker(new URL('./bot.worker.ts', import.meta.url), { type: 'module' });
         worker.onmessage = event => {
           if (event.data.requestID !== request) return;

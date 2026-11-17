@@ -345,26 +345,39 @@ function hutSetupAccessibility(slot: number) {
   hutAccessibilityCache.set(slot, value);
   return value;
 }
-function planExpansionStoreSetup(G: AleState, playerIndex: number) {
+function planExpansionStoreLayout(G: AleState, playerIndex: number) {
   const board = G.expansion?.players[playerIndex];
   if (!board) return null;
   const emptySlots = board.hutStoreTiles.flatMap((tile, slot) => tile === null ? [slot] : []);
   const remainingTiles = Array.from({ length: 7 }, (_, index) => index + 1).filter(tile => !board.hutStoreTiles.includes(tile));
-  if (!emptySlots.length || emptySlots.length !== remainingTiles.length) return null;
-  const targetSlot = [...emptySlots].sort((a, b) => hutSetupAccessibility(b) - hutSetupAccessibility(a))[0];
+  if (emptySlots.length !== 7 || remainingTiles.length !== 7) return null;
   const player = G.players[playerIndex];
-  const priority = (tileId: number) => {
+  const publicMarketKey = G.resources.flatMap(pile => pile.map(tile => tile.id)).slice(0, 18).join('|');
+  const variationSeed = `${publicMarketKey}:${playerIndex}:${player.startSlot ?? -1}:${G.startPlayer}`;
+  const stableNoise = (value: string) => {
+    let hash = 2166136261;
+    for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
+    return ((hash >>> 0) / 0xffffffff - .5) * .34;
+  };
+  const tilePriority = (tileId: number) => {
     const frontValue = storeTileSetupFrontValue(G, player, board, tileId);
     const backValue = board.storageExtensions.some(extension => extension === null) ? storageExpansionValue(G, player, board) : -Infinity;
-    // The printed side is a real strategic option; adjust the static prior by
-    // its current payoff so a rich start can value the cargo tile differently
-    // from a cash-starved start, and brewery upgrades track actual delivery odds.
+    // Give priority to the stronger actual use of each tile instead of mostly
+    // following the old fixed ranking. A small public-state keyed tie break
+    // keeps equally good openings from always looking like the same script.
     const optionValue = Math.max(frontValue, backValue);
-    const adjustment = Number.isFinite(optionValue) ? Math.max(-1.4, Math.min(1.4, (optionValue - 3.2) * .28)) : 0;
-    return storeTileValue[tileId] + adjustment;
+    const dynamicValue = Number.isFinite(optionValue) ? optionValue : 0;
+    return dynamicValue + storeTileValue[tileId] * .24 + stableNoise(`${variationSeed}:tile:${tileId}`);
   };
-  const tile = [...remainingTiles].sort((a, b) => priority(b) - priority(a) || a - b)[0];
-  return targetSlot === undefined || tile === undefined ? null : { slot: targetSlot, tile };
+  const slots = [...emptySlots].sort((a, b) => {
+    const aScore = hutSetupAccessibility(a) + stableNoise(`${variationSeed}:hut:${a}`) * .18;
+    const bScore = hutSetupAccessibility(b) + stableNoise(`${variationSeed}:hut:${b}`) * .18;
+    return bScore - aScore || a - b;
+  });
+  const tiles = [...remainingTiles].sort((a, b) => tilePriority(b) - tilePriority(a) || a - b);
+  const layout = Array(7).fill(0);
+  slots.forEach((slot, index) => { layout[slot] = tiles[index]; });
+  return layout.every(tileId => tileId >= 1 && tileId <= 7) ? layout : null;
 }
 function expansionSetupPotential(G: AleState, playerIndex: number) {
   const board = G.expansion?.players[playerIndex];
@@ -578,11 +591,8 @@ export function chooseBotMove(G: AleState, currentPlayer: string, difficulty: Bo
   if (G.phase === 'setup' && G.setupStage === 'expansion-stores' && G.expansion) {
     const board = G.expansion.players[Number(currentPlayer)];
     if (!board || G.expansion.storeSetupReady[Number(currentPlayer)]) return null;
-    const plannedPlacement = planExpansionStoreSetup(G, Number(currentPlayer));
-    if (plannedPlacement) {
-      const huts = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
-      return { name: 'assignExpansionStoreTile', args: [huts[plannedPlacement.slot], plannedPlacement.tile] };
-    }
+    const layout = planExpansionStoreLayout(G, Number(currentPlayer));
+    if (layout) return { name: 'assignExpansionStoreLayout', args: [layout] };
     return { name: 'finishExpansionStoreSetup', args: [] };
   }
   if (G.expansion?.storePrompts?.[0]?.playerIndex === Number(currentPlayer)) {
@@ -697,6 +707,7 @@ export function searchMoves(G: AleState, playerID: string, fast = false): BotMov
   const free = G.phase === 'play' && !G.pending && !G.startChoice && !G.confirmationKind && !G.shedChoices.length && !G.privilegePrompts.length;
   const preferred = fast && free ? null : chooseBotMove(G, playerID, 'expert');
   if (!preferred && !free) return [];
+  if (G.phase === 'setup' && G.setupStage === 'expansion-stores') return preferred ? [preferred] : [];
   if (G.confirmationKind || (G.expansion?.storePrompts?.length ?? 0) > 0 || (G.expansion?.cartMovement?.nextLocation ?? -1) >= 0 || G.pending?.baseDone)
     return preferred ? [preferred] : [];
   let alternatives: BotMove[] = [];

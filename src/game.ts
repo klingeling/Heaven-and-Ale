@@ -345,6 +345,17 @@ export const HeavenAle: Game<AleState> = {
       board.hutStoreTiles[storeSlot] = tileId;
       if (hasPairedAssignment) board.hutStoreTiles[pairedSlot] = pairedTileId!;
     }, redact: true },
+    assignExpansionStoreLayout: { move: ({ G, ctx }, tileIds: number[]) => {
+      const playerIndex = Number(ctx.currentPlayer), board = G.expansion?.players[playerIndex];
+      if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion || !board || G.confirmationKind || G.expansion.storeSetupReady[playerIndex]) return;
+      if (!Array.isArray(tileIds) || tileIds.length !== 7 || new Set(tileIds).size !== 7 || tileIds.some(id => !Number.isInteger(id) || id < 1 || id > 7)) return;
+      if (board.hutStoreTiles.some(id => id !== null)) return;
+      saveActionSnapshot(G); saveStepSnapshot(G);
+      board.hutStoreTiles = [...tileIds];
+      G.expansion.storeSetupReady[playerIndex] = true;
+      G.confirmationKind = 'setup';
+      G.log.unshift(`${G.players[playerIndex].name} 完成了 7 个存储板块的策略布局，等待确认。`);
+    }, redact: true },
     placeRemainingExpansionStoreTiles: { move: ({ G, ctx }, tileIds: number[]) => {
       const playerIndex = Number(ctx.currentPlayer), board = G.expansion?.players[playerIndex];
       if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion || !board || G.confirmationKind || G.expansion.storeSetupReady[playerIndex] || !Array.isArray(tileIds)) return;

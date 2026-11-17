@@ -1,26 +1,26 @@
 import { strict as assert } from 'node:assert';
-import { InitializeGame } from 'boardgame.io/internal';
-import { HeavenAle, gardenCells } from '../src/game';
+import { CreateGameReducer, InitializeGame } from 'boardgame.io/internal';
+import { HeavenAle } from '../src/game';
 import { chooseBotMove } from '../src/bot';
 import { createExpansionState } from '../src/expansion';
 
 const game = { ...HeavenAle, setup: (args: any) => HeavenAle.setup!(args, { expansionEnabled: true }) };
-const hutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+const reducer = CreateGameReducer({ game, isClient: false });
 function setupPlan(coins: number) {
   const state: any = InitializeGame({ game, numPlayers: 2, seed: 'expansion-store-plan' });
   const G = structuredClone(state.G);
   G.setupStage = 'expansion-stores'; G.confirmationKind = null;
-  G.players[0].coins = coins;
-  const board = G.expansion.players[0], order: number[] = [];
-  for (let i = 0; i < 7; i++) {
-    const move = chooseBotMove(G, '0', 'expert');
-    assert.equal(move?.name, 'assignExpansionStoreTile');
-    const [hut, tile] = move!.args as number[];
-    board.hutStoreTiles[hutIndexes.indexOf(hut)] = tile;
-    order.push(tile);
-  }
-  assert.equal(new Set(order).size, 7);
-  return order;
+  const playerID = String(state.ctx.currentPlayer);
+  G.players[Number(playerID)].coins = coins;
+  const move = chooseBotMove(G, playerID, 'expert');
+  assert.equal(move?.name, 'assignExpansionStoreLayout');
+  const [layout] = move!.args as [number[]];
+  assert.equal(layout.length, 7);
+  assert.equal(new Set(layout).size, 7);
+  const next = reducer({ ...state, G }, { type: 'MAKE_MOVE', payload: { type: move!.name, args: move!.args, playerID } });
+  assert.deepEqual(next.G.expansion.storeSetupReady[Number(playerID)], true);
+  assert.equal(next.G.confirmationKind, 'setup');
+  return layout;
 }
 
 function cargoChoice(coins: number) {
@@ -39,9 +39,10 @@ function cargoChoice(coins: number) {
   return chooseBotMove(G, '0', 'expert');
 }
 
-assert.equal(new Set(setupPlan(4)).size, 7);
-assert.equal(new Set(setupPlan(20)).size, 7);
+const lowCashLayout = setupPlan(4), highCashLayout = setupPlan(20);
+assert.equal(new Set(lowCashLayout).size, 7);
+assert.equal(new Set(highCashLayout).size, 7);
 assert.deepEqual(cargoChoice(4), { name: 'finishExpansionCargo', args: [] });
 assert.deepEqual(cargoChoice(20), { name: 'takeExpansionCargo', args: ['straw', -1] });
-console.log('Expansion bot setup assigns all seven unique tiles.');
+console.log('Expansion bot submits one complete, unique seven-tile layout.');
 console.log('Cargo selection respects the 4-coin cost and takes straw when it completes a barrel/straw pair.');

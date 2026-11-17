@@ -930,7 +930,7 @@ export function canTakeExpansionCargo(G: AleState, p: PlayerState, spaceIndex: n
   const expansion = G.expansion, playerIndex = G.players.indexOf(p);
   return !!expansion && playerIndex >= 0 && !!expansion.cargoByTrackSpace[spaceIndex]?.length && canStoreExpansionCargo(expansion.players[playerIndex], p.coins);
 }
-function canUseExpansionCart(G: AleState, p: PlayerState, spaceIndex: number) {
+export function canUseExpansionCart(G: AleState, p: PlayerState, spaceIndex: number) {
   const expansion = G.expansion, playerIndex = G.players.indexOf(p);
   if (!expansion || playerIndex < 0 || expansion.cartDieSpace !== spaceIndex) return false;
   const board = expansion.players[playerIndex], steps = expansion.cartDieValue + board.cartStepBonus;

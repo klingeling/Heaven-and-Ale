@@ -1,10 +1,10 @@
 import {
-  availableBarrelIds, canBuyFrom, canMoveTo, canScore, canSelectShedCell, canTakeExpansionCargo, gardenCells, lowestResources,
+  availableBarrelIds, canBuyFrom, canMoveTo, canScore, canSelectShedCell, canTakeExpansionCargo, canUseExpansionCart, gardenCells, lowestResources,
   monkNames, resources, scoreBreakdown, scoreChoices, shedProductionProgress, tileBaseCost,
   validShedSelection, type AleState, type PlayerState, type Resource, type ShedChoice, type Tile,
 } from './game';
 import { STORAGE_UNLOCK_ORDER, UNLOCKABLE_STORAGE_SLOTS, cartGateBeforeLocation, cartRoute, emptyExpansionStorageSlots, storedCargoCount, validCartLoadChoices, type ExpansionCargo, type ExpansionPlayerBoard } from './expansion';
-import { extractBotValueFeatures, predictBotValueCorrection, type BotValueModel } from './bot-value-network';
+import { extractBotValueFeatures, getActiveBotValueModel, predictBotValueCorrection, type BotValueModel } from './bot-value-network';
 
 export type BotDifficulty = 'normal' | 'expert';
 export type BotMove = { name: string; args: unknown[] };
@@ -60,7 +60,10 @@ function evaluate(p: PlayerState, round: number, maxRounds: number) {
       const activations = (colorReady ? .65 : 0) + (valueReady ? .25 : 0) + monks * .6;
       if (cell.side === 'sun') future.tracks[tile.resource] = Math.min(20, future.tracks[tile.resource] + tile.value * activations);
       else future.coins += tile.value * activations;
-      engine += tile.value * activations * (cell.side === 'sun' ? .28 : (.25 + Math.max(0,12-p.coins)/12*.25));
+      // Cash scarcity is already reflected by the nonlinear coin term below;
+      // making shade-tile engine value shrink as current cash rises can make
+      // the evaluator claim that gaining a coin is harmful.
+      engine += tile.value * activations * (cell.side === 'sun' ? .28 : .35);
     } else {
       const linked = neighbors(index).filter(i => !!p.board[i].tile).length;
       if (!p.scores.monk[monkNames.indexOf(tile.monk!)]) engine += linked * .45;
@@ -267,10 +270,7 @@ function actionValue(G: AleState, p: PlayerState, index: number, difficulty: Bot
     const expansion = G.expansion, playerIndex = G.players.indexOf(p), board = expansion.players[playerIndex];
     const pile = expansion.cargoByTrackSpace[index] ?? [];
     if (canTakeExpansionCargo(G, p, index) && board) {
-      const capacity = emptyExpansionStorageSlots(board).length + Number(!board.temporaryStorage && p.coins >= 4);
-      const barrels = Math.min(capacity, pile.filter(item => item === 'barrel').length);
-      const straw = Math.min(Math.max(0, capacity - barrels), pile.filter(item => item === 'straw').length);
-      extensionValue += barrels * (board.cartBarrels || storedCargoCount(board, 'straw') ? 2.5 : 1.4) + straw * (storedCargoCount(board, 'barrel') || barrels ? 1.8 : .9);
+      extensionValue += planExpansionCargoCollection(G, p, board, pile).value;
     }
     if (board && expansion.cartDieSpace === index && validCartLoadChoices(board, expansion.cartDieValue + board.cartStepBonus).length)
       extensionValue += 2.2 + Math.min(3, board.cartBarrels + storedCargoCount(board, 'barrel')) * .8;
@@ -352,7 +352,18 @@ function planExpansionStoreSetup(G: AleState, playerIndex: number) {
   const remainingTiles = Array.from({ length: 7 }, (_, index) => index + 1).filter(tile => !board.hutStoreTiles.includes(tile));
   if (!emptySlots.length || emptySlots.length !== remainingTiles.length) return null;
   const targetSlot = [...emptySlots].sort((a, b) => hutSetupAccessibility(b) - hutSetupAccessibility(a))[0];
-  const tile = [...remainingTiles].sort((a, b) => storeTileValue[b] - storeTileValue[a] || a - b)[0];
+  const player = G.players[playerIndex];
+  const priority = (tileId: number) => {
+    const frontValue = storeTileSetupFrontValue(G, player, board, tileId);
+    const backValue = board.storageExtensions.some(extension => extension === null) ? storageExpansionValue(G, player, board) : -Infinity;
+    // The printed side is a real strategic option; adjust the static prior by
+    // its current payoff so a rich start can value the cargo tile differently
+    // from a cash-starved start, and brewery upgrades track actual delivery odds.
+    const optionValue = Math.max(frontValue, backValue);
+    const adjustment = Number.isFinite(optionValue) ? Math.max(-1.4, Math.min(1.4, (optionValue - 3.2) * .28)) : 0;
+    return storeTileValue[tileId] + adjustment;
+  };
+  const tile = [...remainingTiles].sort((a, b) => priority(b) - priority(a) || a - b)[0];
   return targetSlot === undefined || tile === undefined ? null : { slot: targetSlot, tile };
 }
 function expansionSetupPotential(G: AleState, playerIndex: number) {
@@ -417,6 +428,65 @@ function storageExpansionValue(G: AleState, p: PlayerState, board: ExpansionPlay
     + (p.coins < 8 ? .35 : 0);
 }
 
+function expansionCargoInventoryValue(G: AleState, board: ExpansionPlayerBoard) {
+  const barrels = storedCargoCount(board, 'barrel'), straw = storedCargoCount(board, 'straw');
+  const matchedPairs = Math.min(barrels, straw);
+  const unpairedBarrels = barrels - matchedPairs, unpairedStraw = straw - matchedPairs;
+  const remainingRounds = Math.max(0, G.maxRounds - G.round + 1);
+  const deliveryChance = Math.min(.9, .3 + remainingRounds * .2);
+  const averageDelivery = board.breweryScores.reduce((sum, score) => sum + score, 0) / board.breweryScores.length;
+  return barrels * .5 + matchedPairs * averageDelivery * deliveryChance + unpairedBarrels * .45 + unpairedStraw * .3;
+}
+
+function expansionCargoPickupValue(G: AleState, p: PlayerState, board: ExpansionPlayerBoard, playerIndex: number, kind: ExpansionCargo, slot: number) {
+  const before = expansionCargoInventoryValue(G, board);
+  const nextBoard = { ...board, storage: [...board.storage] };
+  if (slot === -1) {
+    if (nextBoard.temporaryStorage || p.coins < 4) return -Infinity;
+    nextBoard.temporaryStorage = kind;
+  } else {
+    if (nextBoard.storage[slot] !== null || !nextBoard.storageUnlocked[slot]) return -Infinity;
+    nextBoard.storage[slot] = kind;
+  }
+  let value = expansionCargoInventoryValue(G, nextBoard) - before;
+  if (slot === -1) {
+    const afterCash = clonePlayer(p);
+    afterCash.coins -= 4;
+    const afterCashState = { ...G, players: G.players.map((player, index) => index === playerIndex ? afterCash : player) };
+    value -= evaluate(p, G.round, G.maxRounds) - evaluate(afterCash, G.round, G.maxRounds);
+    value -= economyRisk(afterCashState, playerIndex) - economyRisk(G, playerIndex);
+  } else {
+    const freeSlots = emptyExpansionStorageSlots(board).length;
+    const futureWeight = Math.max(0, G.maxRounds - G.round + 1) / Math.max(1, G.maxRounds);
+    value -= (freeSlots <= 1 ? .72 : freeSlots === 2 ? .36 : .12) * futureWeight;
+  }
+  return value;
+}
+
+function planExpansionCargoCollection(G: AleState, p: PlayerState, board: ExpansionPlayerBoard, pile: ExpansionCargo[]) {
+  const simBoard = { ...board, storage: [...board.storage] }, simPlayer = clonePlayer(p), remaining = [...pile];
+  const picks: { kind: ExpansionCargo; slot: number; value: number }[] = [];
+  let totalValue = 0;
+  for (let pick = 0; pick < 8 && remaining.length; pick++) {
+    const regularSlots = emptyExpansionStorageSlots(simBoard);
+    const destinations = [
+      ...(regularSlots.length ? [regularSlots[0]] : []),
+      ...(!simBoard.temporaryStorage && simPlayer.coins >= 4 ? [-1] : []),
+    ];
+    if (!destinations.length) break;
+    const playerIndex = G.players.indexOf(p);
+    const candidates = [...new Set(remaining)].flatMap(kind => destinations.map(slot => ({ kind, slot, value: expansionCargoPickupValue(G, simPlayer, simBoard, playerIndex, kind, slot) })));
+    candidates.sort((a, b) => b.value - a.value || (a.kind === 'barrel' ? -1 : 1));
+    const best = candidates[0];
+    if (!best || best.value <= .05 && picks.length > 0) break;
+    if (best.slot === -1) { simBoard.temporaryStorage = best.kind; simPlayer.coins -= 4; }
+    else simBoard.storage[best.slot] = best.kind;
+    remaining.splice(remaining.indexOf(best.kind), 1);
+    picks.push(best); totalValue += best.value;
+  }
+  return { picks, value: totalValue };
+}
+
 function bestStoreTile7Front(G: AleState, p: PlayerState, board: ExpansionPlayerBoard) {
   const expansion = G.expansion;
   if (!expansion) return null;
@@ -442,6 +512,26 @@ function bestStoreTile7Front(G: AleState, p: PlayerState, board: ExpansionPlayer
     if (!best || value > best.value) best = { cargo: ordered, destinations: assigned, value };
   }
   return best;
+}
+
+function storeTileSetupFrontValue(G: AleState, p: PlayerState, board: ExpansionPlayerBoard, tileId: number) {
+  const roundsLeft = Math.max(0, G.maxRounds - G.round);
+  if (tileId === 1 || tileId === 2) {
+    const bonus = tileId === 1 ? 2 : 3;
+    let improvement = 0;
+    for (let die = 1; die <= 6; die++) improvement += bestCartMoveValue(G, board, die + board.cartStepBonus + bonus) - bestCartMoveValue(G, board, die + board.cartStepBonus);
+    return Math.max(0, improvement / 6) * (roundsLeft * .9 + .25);
+  }
+  if (tileId === 3 || tileId === 4) {
+    const score = tileId === 3 ? 5 : 6;
+    const deliveries = futureBreweryDeliveries(G, board);
+    return Math.max(0, ...[0, 1].filter(index => board.breweryUpgradeTiles[index] === null).map(index => (score - board.breweryScores[index]) * deliveries[index]));
+  }
+  if (tileId === 5 || tileId === 6) {
+    const steps = tileId === 5 ? 4 : 6;
+    return Math.max(0, bestCartMoveValue(G, board, steps));
+  }
+  return tileId === 7 ? Math.max(0, bestStoreTile7Front(G, p, board)?.value ?? 0) : 0;
 }
 
 function chooseStoreTileUse(G: AleState, p: PlayerState, board: ExpansionPlayerBoard, tileId: number) {
@@ -510,11 +600,9 @@ export function chooseBotMove(G: AleState, currentPlayer: string, difficulty: Bo
   }
   if (G.pending?.player === currentPlayer && G.pending.baseDone && G.pending.cargoDone === false && G.expansion) {
     const board = G.expansion.players[Number(currentPlayer)], pile = G.expansion.cargoByTrackSpace[G.pending.space] ?? [];
-    const kinds: ExpansionCargo[] = [...new Set(pile)];
-    kinds.sort((a, b) => storedCargoCount(board, a) - storedCargoCount(board, b));
-    const slot = emptyExpansionStorageSlots(board)[0];
-    if (slot !== undefined && kinds.length) return { name: 'takeExpansionCargo', args: [kinds[0], slot] };
-    if (slot === undefined && !board.temporaryStorage && player.coins >= 4 && kinds.length) return { name: 'takeExpansionCargo', args: [kinds[0], -1] };
+    const planned = planExpansionCargoCollection(G, player, board, pile).picks[0];
+    const canSkipCargo = (G.pending.cargoTaken ?? 0) > 0 || canUseExpansionCart(G, player, G.pending.space);
+    if (planned && (!canSkipCargo || planned.value > .2)) return { name: 'takeExpansionCargo', args: [planned.kind, planned.slot] };
     return { name: 'finishExpansionCargo', args: [] };
   }
   if (G.pending?.player === currentPlayer && G.pending.baseDone && G.pending.cargoDone && G.pending.cartDone === false)
@@ -670,9 +758,27 @@ export function searchValueHeuristic(G: AleState, player: number) {
 export function searchValue(G: AleState, player: number, valueModel?: BotValueModel | null) {
   const base = searchValueHeuristic(G, player);
   if (G.phase === 'finished' || G.players[player]?.retired && G.round === G.maxRounds) return base;
+  const model = valueModel === undefined ? getActiveBotValueModel() : valueModel;
+  if (!model || model.blend <= 0) return base;
   // The network only learns a correction to the hand-built estimate. The
-  // training script enables it only after a held-out match shows lower error.
-  return base + predictBotValueCorrection(extractBotValueFeatures(G, player, base), valueModel);
+  // training script enables it only after held-out matches show lower error.
+  // Self-play labels can still correlate higher cash with worse positions, so
+  // take a monotone envelope over lower cash levels. This prevents the learned
+  // residual from making a coin itself reduce a player's evaluated position.
+  const state = G.players[player];
+  const probePlayers = [...G.players];
+  const probePlayer = { ...state };
+  probePlayers[player] = probePlayer;
+  const probeG = { ...G, players: probePlayers };
+  let bestLowerValue = -Infinity;
+  for (let coins = 0; coins < state.coins; coins++) {
+    probePlayer.coins = coins;
+    const probeBase = searchValueHeuristic(probeG, player);
+    const probeCorrection = predictBotValueCorrection(extractBotValueFeatures(probeG, player, probeBase), model);
+    bestLowerValue = Math.max(bestLowerValue, probeBase + probeCorrection);
+  }
+  const correction = predictBotValueCorrection(extractBotValueFeatures(G, player, base), model);
+  return Math.max(base + correction, bestLowerValue);
 }
 
 

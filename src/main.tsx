@@ -1724,16 +1724,16 @@ function renderLog(line: string, players: AleState['players']) {
 }
 function markerClusterOffset(index: number, count: number): [number, number] {
   const layouts: Record<number, [number, number][]> = {
-    2: [[-1.55, 0], [1.55, 0]],
-    3: [[-1.5, -1.7], [1.5, -1.7], [0, 1.7]],
-    4: [[-1.5, -1.7], [1.5, -1.7], [-1.5, 1.7], [1.5, 1.7]],
-    5: [[-2.05, -1.28], [0, -1.28], [2.05, -1.28], [-1.025, 1.28], [1.025, 1.28]],
-    6: [[-2.1, -1.05], [0, -1.05], [2.1, -1.05], [-2.1, 1.05], [0, 1.05], [2.1, 1.05]],
+    2: [[-1.6, 0], [1.6, 0]],
+    3: [[-1.6, -2.4], [1.6, -2.4], [0, 1.6]],
+    4: [[-1.6, -2.4], [1.6, -2.4], [-1.6, .8], [1.6, 1.6]],
+    5: [[-1.6, -2.4], [0, -2.4], [1.6, -2.4], [-1.6, .8], [1.6, 1.6]],
+    6: [[-1.6, -2.4], [0, -2.4], [1.6, -2.4], [-1.6, .8], [0, .8], [1.6, 1.6]],
   };
   return (layouts[count] || [[0, 0]])[index] || [0, 0];
 }
 function markerClusterScale(count: number) {
-  return ({ 1: 1, 2: .52, 3: .5, 4: .5, 5: .35, 6: .35 } as Record<number, number>)[count] ?? 1;
+  return ({ 1: 1, 2: 3.2 / 6, 3: 3.2 / 6, 4: 3.2 / 6, 5: 3.2 / 6, 6: 3.2 / 6 } as Record<number, number>)[count] ?? 1;
 }
 function Garden({ player, playerIndex, pieceFlights, activePlayer, selectedTile, sourceIndex, coins, canPlace, shedChoice, flightTileId, flightTargetIndex, flightScoreIndex, scoreTargetIndices, onScoreTarget, onShedToggle, onSelect, cells, storeTiles, storeSetup = false, selectedStoreId, storeSetupReady = false, onStoreTarget }: { player: any; playerIndex: number; pieceFlights: PieceFlight[]; activePlayer: any; selectedTile?: Tile; sourceIndex?: number; coins: number; canPlace: boolean; shedChoice?: ShedChoice; flightTileId?: string; flightTargetIndex?: number; flightScoreIndex?: number; scoreTargetIndices: number[]; onScoreTarget: (index: number) => void; onShedToggle: (n: number) => void; onSelect: (n: number) => void; cells: typeof gardenCells; storeTiles?: (number | null)[]; storeSetup?: boolean; selectedStoreId?: number | null; storeSetupReady?: boolean; onStoreTarget?: (index: number, storeId?: number) => void }) {
   const markers = [...resources.map(resource => ({ key: resource, label: resourceLabels[resource], value: player.tracks[resource], color: resourceColors[resource] })), { key: 'brewer', label: '酿酒师', value: player.brewer, color: '#eee4c8' }];

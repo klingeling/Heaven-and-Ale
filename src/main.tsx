@@ -653,7 +653,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const deferredGameActionRef = React.useRef<typeof deferredGameAction>(null);
   const [scoreChoice, setScoreChoice] = useState<string>('');
   const [scoreCategory, setScoreCategory] = useState<'A' | 'B' | 'C'>('A');
-  const [showProductionChoices, setShowProductionChoices] = useState(false);
+  const [showProductionChoices, setShowProductionChoices] = useState(true);
   const [privilegeCardChoice, setPrivilegeCardChoice] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
@@ -1427,7 +1427,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   useEffect(() => {
     setScoreChoice('');
     setScoreCategory('A');
-    setShowProductionChoices(false);
+    setShowProductionChoices(true);
   }, [action?.player, action?.space, action?.type, currentScoreSpace?.scoreType]);
   const placeScoreChoice = (category: 'A' | 'B' | 'C', choice: string) => {
     if (!canControlTurn || !scoreCategories.includes(category) || !scoreChoices(activePlayer, category).some(value => String(value) === choice)) return;

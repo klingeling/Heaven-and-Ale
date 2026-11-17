@@ -1461,7 +1461,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const actionOrder = Array.from({ length: playerCount }, (_, offset) => (orderStart + turnDirection * offset + playerCount * 2) % playerCount);
   const ownOrderPosition = actionOrder.indexOf(ownPlayerIndex);
   const rosterOrder = ownOrderPosition < 0 ? actionOrder : [...actionOrder.slice(ownOrderPosition), ...actionOrder.slice(0, ownOrderPosition)];
-  return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''}`}>
+  return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''}`} onDragStartCapture={event => event.preventDefault()}>
     {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />}
     {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />)}
     {movementTrails.filter(trail => trail.started).map(trail => {

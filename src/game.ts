@@ -761,6 +761,10 @@ export const HeavenAle: Game<AleState> = {
       history.pop();
       Object.assign(G, snapshot);
       G.stepUndoSnapshots = history;
+      if (!history.length) {
+        G.undoSnapshot = null;
+        G.confirmationKind = null;
+      }
     },
     confirmAction: ({ G, ctx, events, random }) => {
       if (!G.confirmationKind || G.privilegePrompts.length > 0 || G.shedChoices.length > 0 || G.startChoice || (G.expansion?.storePrompts?.length ?? 0) > 0 || G.expansion?.cartMovement) return;

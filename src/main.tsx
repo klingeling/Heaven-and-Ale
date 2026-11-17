@@ -12,7 +12,23 @@ import './readable-text.css';
 
 type AnyClient = ReturnType<typeof Client>;
 type MotionPoint = { x: number; y: number };
+type MovementTrail = { id: string; pathPoints: MotionPoint[]; durationMs: number; started: boolean };
 type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean };
+function smoothMotionPath(points: MotionPoint[]) {
+  if (!points.length) return '';
+  let path = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  if (points.length === 2) return `${path} L ${points[1].x.toFixed(1)} ${points[1].y.toFixed(1)}`;
+  for (let index = 0; index < points.length - 1; index++) {
+    const previous = points[Math.max(0, index - 1)];
+    const start = points[index];
+    const end = points[index + 1];
+    const next = points[Math.min(points.length - 1, index + 2)];
+    const control1 = { x: start.x + (end.x - previous.x) / 6, y: start.y + (end.y - previous.y) / 6 };
+    const control2 = { x: end.x - (next.x - start.x) / 6, y: end.y - (next.y - start.y) / 6 };
+    path += ` C ${control1.x.toFixed(1)} ${control1.y.toFixed(1)}, ${control2.x.toFixed(1)} ${control2.y.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
+  }
+  return path;
+}
 const gameName = 'heaven-and-ale';
 const BOT_AFTER_ANIMATION_PAUSE_MS = 500;
 const meepleSpriteColorIndex: Record<string, number> = { black: 0, yellow: 1, blue: 2, red: 3 };
@@ -557,6 +573,13 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const lastPlacedExpansionStoreId = React.useRef<number | null>(null);
   const [selectedExpansionCargoKind, setSelectedExpansionCargoKind] = useState<ExpansionCargo | null>(null);
   const [pieceFlights, setPieceFlights] = useState<PieceFlight[]>([]);
+  const [movementTrails, setMovementTrails] = useState<MovementTrail[]>([]);
+  const previousConfirmationKindRef = React.useRef(G.confirmationKind);
+  useEffect(() => {
+    const previous = previousConfirmationKindRef.current;
+    previousConfirmationKindRef.current = G.confirmationKind;
+    if (previous && !G.confirmationKind) setMovementTrails([]);
+  }, [G.confirmationKind]);
   const pathAnimationsRef = React.useRef(new Map<string, Animation>());
   useLayoutEffect(() => {
     const liveIds = new Set(pieceFlights.map(flight => flight.id));
@@ -712,6 +735,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     if (kind === 'undoStep') moves.undoStep();
     else if (kind === 'undoAction') moves.undoAction();
     else moves.confirmAction();
+    if (kind !== 'confirmAction') setMovementTrails([]);
     if (kind !== 'confirmAction') { setSelectedTileId(null); setPrivilegeCardChoice(null); }
   };
   const requestGameAction = (kind: 'undoStep' | 'undoAction' | 'confirmAction') => {
@@ -743,7 +767,11 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const durationMs = data.pathPoints?.length ? Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165)) : kind === 'coin' ? 680 : 980;
     const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };
     setPieceFlights(current => [...current, flight]);
-    requestAnimationFrame(() => requestAnimationFrame(() => setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item))));
+    if (flight.pathPoints && flight.pathPoints.length > 1) setMovementTrails(current => [...current, { id, pathPoints: flight.pathPoints!, durationMs, started: false }]);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item));
+      setMovementTrails(current => current.map(item => item.id === id ? { ...item, started: true } : item));
+    }));
     const duration = flight.durationMs ?? 980, delay = data.delayMs ?? 0, total = duration + delay + 140;
     window.setTimeout(() => setPieceFlights(current => current.filter(item => item.id !== id)), total);
     return total;
@@ -755,7 +783,11 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const durationMs = data.pathPoints?.length ? Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165)) : 980;
     const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };
     setPieceFlights(current => [...current, flight]);
-    requestAnimationFrame(() => requestAnimationFrame(() => setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item))));
+    if (flight.pathPoints && flight.pathPoints.length > 1) setMovementTrails(current => [...current, { id, pathPoints: flight.pathPoints!, durationMs, started: false }]);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item));
+      setMovementTrails(current => current.map(item => item.id === id ? { ...item, started: true } : item));
+    }));
     const duration = flight.durationMs ?? 980, delay = data.delayMs ?? 0, total = duration + delay + 140;
     window.setTimeout(() => setPieceFlights(current => current.filter(item => item.id !== id)), total);
     return total;
@@ -1312,16 +1344,17 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''}`}>
     {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />}
     {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />)}
+    {movementTrails.filter(trail => trail.started).map(trail => {
+      const pathData = smoothMotionPath(trail.pathPoints);
+      return <svg key={`trail-${trail.id}`} className="movement-trail" viewBox={`0 0 ${window.innerWidth} ${window.innerHeight}`} preserveAspectRatio="none" aria-hidden="true">
+        <path className="movement-trail-line" d={pathData} pathLength={1} style={{ ['--flight-duration' as any]: `${trail.durationMs}ms` }} />
+        <polygon className="movement-trail-arrow" points="-12,-8 12,0 -12,8">
+          <animateMotion dur={`${trail.durationMs}ms`} path={pathData} rotate="auto" fill="freeze" />
+        </polygon>
+      </svg>;
+    })}
     {pieceFlights.map(flight => {
-      const pathPoints = flight.pathPoints;
-      const pathData = pathPoints?.length ? pathPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ') : '';
       return <React.Fragment key={flight.id}>
-        {flight.started && pathData && <svg className="movement-trail" viewBox={`0 0 ${window.innerWidth} ${window.innerHeight}`} preserveAspectRatio="none" aria-hidden="true">
-          <path className="movement-trail-line" d={pathData} pathLength={1} style={{ ['--flight-duration' as any]: `${flight.durationMs ?? 980}ms` }} />
-          <polygon className="movement-trail-arrow" points="-12,-8 12,0 -12,8">
-            <animateMotion dur={`${flight.durationMs ?? 980}ms`} path={pathData} rotate="auto" fill="freeze" />
-          </polygon>
-        </svg>}
         <div data-piece-flight-id={flight.id} className={`tile-flight ${flight.started ? flight.pathPoints ? 'path-moving' : 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, ['--flight-duration' as any]: `${flight.durationMs ?? 980}ms`, backgroundPosition: flight.kind === 'resource-marker' ? trackMarkerSpritePosition(flight.resourceKey!) : flight.kind === 'brewer-marker' ? meepleSpritePosition(flight.playerColor || 'black') : flight.kind === 'meeple' ? meepleSpritePosition(flight.playerColor || 'black') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <BarrelGoalArt id={flight.barrelId || 0} /> : flight.kind === 'expansion-cargo' ? flight.cargoKind === 'barrel' ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="" /> : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="" /> : flight.kind === 'cart' ? <span className="transport-cart-marker flight-cart-marker">{(flight.cargoCount ?? 0) > 0 && <span className="cart-cargo-stack">{Array.from({ length: flight.cargoCount ?? 0 }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="" /></span> : flight.kind === 'die' ? <DiceFace value={flight.dieValue ?? 1} /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : flight.kind === 'store-card' ? <img src={`/Images/store_${flight.storeId}.png`} alt="" /> : null}</div>
       </React.Fragment>;
     })}

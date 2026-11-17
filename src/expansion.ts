@@ -75,9 +75,9 @@ export const cartRoute: CartLocation[] = [
   { name: '树林2', kind: 'forest', score: 0, left: 52, top: 95 },
   { name: '酒馆民居 5', kind: 'house', score: 2, left: 18, top: 91 },
   { name: '酒馆民居 6', kind: 'house', score: 2, left: 18, top: 79 },
-  { name: '第1酒馆', kind: 'brewery', score: 0, brewery: 1, left: 18, top: 64 },
-  { name: '第2酒馆', kind: 'brewery', score: 0, brewery: 2, left: 18, top: 48 },
-  { name: '第3酒馆', kind: 'brewery', score: 0, brewery: 3, left: 18, top: 35 },
+  { name: '第1酒馆', kind: 'brewery', score: 0, brewery: 1, left: 15, top: 64 },
+  { name: '第2酒馆', kind: 'brewery', score: 0, brewery: 2, left: 15, top: 48 },
+  { name: '第3酒馆', kind: 'brewery', score: 0, brewery: 3, left: 15, top: 33 },
   { name: '树林3', kind: 'forest', score: 0, left: 32, top: 25 },
 ];
 

@@ -1655,7 +1655,7 @@ function DiceFace({ value }: { value: number }) {
   return <svg className="expansion-cart-die-face" viewBox="0 0 32 32" role="img" aria-label={`骰子 ${face} 点`}><rect x="1" y="1" width="30" height="30" rx="5" fill="#fff8e8" stroke="#30251b" strokeWidth="2" />{pips[face].map(([cx, cy], i) => <circle key={i} cx={cx} cy={cy} r="2.6" fill="#211c17" />)}</svg>;
 }
 function ExpansionTransportBoard({ board, color, playerIndex, pieceFlights, storeEffectLabels, cargoPlacement }: { board: ExpansionPlayerBoard; color: string; playerIndex: number; pieceFlights: PieceFlight[]; storeEffectLabels: Record<number, string>; cargoPlacement?: { kind: ExpansionCargo; slots: number[]; temporaryAvailable: boolean; pending?: { kind: ExpansionCargo; slot: number }[]; onSelectSlot: (slot: number) => void } }) {
-  const slots = [[14.5, 4.7], [28.8, 4.7], [43.5, 4.7], [58.1, 4.7], [72.6, 4.7], [14.5, 12.0], [28.8, 12.0], [43.5, 12.0], [58.1, 12.0], [72.6, 12.0]];
+  const slots = [[14.5, 4.7], [28.8, 4.7], [43.5, 4.7], [58.3, 4.7], [72.9, 4.7], [14.5, 12.0], [28.8, 12.0], [43.5, 12.0], [58.3, 12.0], [72.9, 12.0]];
   const cargoGlyph = (cargo: 'barrel' | 'straw') => cargo === 'barrel'
     ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="桶装酒" title="桶装酒" />
     : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="干草" title="干草" />;

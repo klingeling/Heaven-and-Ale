@@ -101,6 +101,13 @@
 .score-monk-icon{display:block;width:31px;height:31px;object-fit:contain}
 .log-monk-icon{display:inline-block;width:19px;height:19px;object-fit:contain;vertical-align:middle;margin:0 2px}
 .score-category-picker{margin-bottom:3px}
+.score-choice-list{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px}
+.score-choice-list>button,.score-choice-parent,.score-choice-submenu button{display:flex;align-items:center;justify-content:center;gap:6px;min-height:40px}
+.score-choice-group{display:grid;gap:4px}
+.score-choice-parent span{font-size:10px;opacity:.75}
+.score-choice-submenu{display:flex;flex-wrap:wrap;gap:4px}
+.score-choice-list .score-monk-icon{width:27px;height:27px;object-fit:contain}
+.score-choice-list .score-resource-option img{width:25px;height:25px;object-fit:contain}
 .score-picker button:disabled{opacity:.38;cursor:not-allowed}
 .start-resource-picker{justify-content:center;gap:4px;flex-wrap:nowrap}
 .start-resource-picker button{display:flex;flex:0 0 56px;flex-direction:column;align-items:center;justify-content:center;gap:0;width:56px;height:62px;padding:0}

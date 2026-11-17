@@ -586,12 +586,15 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const [pieceFlights, setPieceFlights] = useState<PieceFlight[]>([]);
   const [movementTrails, setMovementTrails] = useState<MovementTrail[]>([]);
   const reverseCartMotionRef = React.useRef(false);
+  const undoStepTargetStateIdRef = React.useRef<number | null>(null);
   const previousConfirmationKindRef = React.useRef(G.confirmationKind);
   useEffect(() => {
     const previous = previousConfirmationKindRef.current;
     previousConfirmationKindRef.current = G.confirmationKind;
-    if (previous && !G.confirmationKind) setMovementTrails([]);
-  }, [G.confirmationKind]);
+    const justUndidStep = undoStepTargetStateIdRef.current === state._stateID;
+    if (undoStepTargetStateIdRef.current !== null && state._stateID >= undoStepTargetStateIdRef.current) undoStepTargetStateIdRef.current = null;
+    if (previous && !G.confirmationKind && !justUndidStep) setMovementTrails([]);
+  }, [G.confirmationKind, state._stateID]);
   const pathAnimationsRef = React.useRef(new Map<string, Animation>());
   useLayoutEffect(() => {
     const liveIds = new Set(pieceFlights.map(flight => flight.id));
@@ -744,11 +747,14 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const selectedTile = market?.find(tile => tile.id === selectedTileId) ?? market?.[0];
   const canPlace = canControlTurn && isViewingCurrent && !expansionStorePrompt && !!action && !action.baseDone && ['resource', 'monk'].includes(action.type) && !!selectedTile;
   const executeGameAction = (kind: 'undoStep' | 'undoAction' | 'confirmAction') => {
-    if (kind !== 'confirmAction') reverseCartMotionRef.current = true;
+    if (kind === 'undoStep') {
+      reverseCartMotionRef.current = true;
+      undoStepTargetStateIdRef.current = Number(state._stateID) + 1;
+    } else if (kind === 'undoAction') reverseCartMotionRef.current = true;
     if (kind === 'undoStep') moves.undoStep();
     else if (kind === 'undoAction') moves.undoAction();
     else moves.confirmAction();
-    if (kind !== 'confirmAction') setMovementTrails([]);
+    if (kind === 'undoAction') setMovementTrails([]);
     if (kind !== 'confirmAction') { setSelectedTileId(null); setPrivilegeCardChoice(null); }
   };
   const requestGameAction = (kind: 'undoStep' | 'undoAction' | 'confirmAction') => {
@@ -779,7 +785,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const id = `${kind}-${Date.now()}-${Math.random()}`;
     const durationMs = data.pathPoints?.length
       ? kind === 'meeple'
-        ? Math.min(1500, Math.max(350, (data.pathPoints.length - 1) * 85))
+        ? Math.min(1000, Math.max(280, (data.pathPoints.length - 1) * 55))
         : Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165))
       : kind === 'coin' ? 680 : 980;
     const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };
@@ -799,7 +805,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     const id = `${kind}-${Date.now()}-${Math.random()}`;
     const durationMs = data.pathPoints?.length
       ? kind === 'meeple'
-        ? Math.min(1500, Math.max(350, (data.pathPoints.length - 1) * 85))
+        ? Math.min(1000, Math.max(280, (data.pathPoints.length - 1) * 55))
         : Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165))
       : 980;
     const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };

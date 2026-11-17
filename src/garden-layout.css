@@ -108,8 +108,9 @@
 .score-choice-parent span{font-size:10px;opacity:.75}
 .score-choice-submenu{display:flex;flex-wrap:wrap;gap:4px}
 .score-choice-list .score-monk-icon{width:48px;height:48px;object-fit:contain}
-.score-choice-list .score-resource-option img{width:46px;height:46px;object-fit:contain}
-.score-choice-list .score-resource-option span{font-size:12px;line-height:1.1}
+.score-choice-list .score-resource-option{min-width:68px;min-height:68px;gap:0;padding:2px 4px}
+.score-choice-list .score-resource-option img{width:56px;height:56px;object-fit:contain}
+.score-choice-list .score-resource-option span{font-size:12px;line-height:1.05}
 .score-picker button:disabled{opacity:.38;cursor:not-allowed}
 .start-resource-picker{justify-content:center;gap:4px;flex-wrap:nowrap}
 .start-resource-picker button{display:flex;flex:0 0 56px;flex-direction:column;align-items:center;justify-content:center;gap:0;width:56px;height:62px;padding:0}

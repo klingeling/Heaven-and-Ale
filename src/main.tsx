@@ -529,16 +529,20 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const G = onlinePlayerNames ? { ...rawG, players: rawG.players.map((player, i) => onlinePlayerNames[i] ? { ...player, name: onlinePlayerNames[i] } : player) } as AleState : rawG;
   const ctx = state.ctx, currentPlayerIndex = Number(ctx.currentPlayer);
   const handoffTurnKey = `${G.phase}:${G.round}:${ctx.turn ?? ''}:${currentPlayerIndex}:${G.setupStage ?? ''}`;
-  const [handoffTurn, setHandoffTurn] = useState<string | null>(() => localHandoffEnabled && G.phase !== 'finished' && !botSeats.includes(currentPlayerIndex) ? handoffTurnKey : null);
+  const [handoffPlayerIndex, setHandoffPlayerIndex] = useState<number | null>(null);
   const lastHandoffTurnKeyRef = React.useRef(handoffTurnKey);
+  const lastHumanSeatRef = React.useRef<number | null>(localHandoffEnabled && !botSeats.includes(currentPlayerIndex) ? currentPlayerIndex : null);
   useEffect(() => {
     const changedTurn = lastHandoffTurnKeyRef.current !== handoffTurnKey;
     lastHandoffTurnKeyRef.current = handoffTurnKey;
     if (!localHandoffEnabled || G.phase === 'finished' || botSeats.includes(currentPlayerIndex)) {
-      setHandoffTurn(null);
+      setHandoffPlayerIndex(null);
       return;
     }
-    if (changedTurn) setHandoffTurn(handoffTurnKey);
+    if (!changedTurn) return;
+    const previousHumanSeat = lastHumanSeatRef.current;
+    lastHumanSeatRef.current = currentPlayerIndex;
+    if (previousHumanSeat !== null && previousHumanSeat !== currentPlayerIndex) setHandoffPlayerIndex(currentPlayerIndex);
   }, [handoffTurnKey, localHandoffEnabled, G.phase, botSeats, currentPlayerIndex]);
   const localSeat = Number((client as any).playerID);
   const ownPlayerIndex = isLocal ? currentPlayerIndex : Number.isInteger(ownPlayerSeat) ? ownPlayerSeat! : Number.isInteger(localSeat) ? localSeat : currentPlayerIndex;
@@ -1580,7 +1584,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     {showRules && <div className="modal-backdrop" onClick={() => setShowRules(false)}><div className="rules-modal" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowRules(false)}>×</button><span className="eyebrow">HOW TO PLAY</span><h2>修道院经营要点</h2><p>每回合沿公共轨道向前移动，并执行落点行动。购买资源与僧侣板块后，将它们放入花园的向阳或阴凉空格。</p><ul><li>阴凉板块按面值购买；资源激活时获得钱币。</li><li>向阳板块花费双倍；资源激活时推进对应生产轨道。</li><li>计分行动会激活对应产值、资源或僧侣，帮助提升最终分数。</li><li>返回起点领取奖励，本轮休息；所有人都返回后开始新一轮。</li></ul><p className="fine-print">线上联机需要先启动项目内的 boardgame.io 服务端。各回合在玩家设备上依次进行。</p></div></div>}
     {showAbandonConfirm && <div className="modal-backdrop" onClick={() => setShowAbandonConfirm(false)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="abandon-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowAbandonConfirm(false)}>×</button><span className="eyebrow">ABANDON GAME</span><h2 id="abandon-title">放弃当前对局？</h2><p>放弃后会删除本地存档，无法继续这场对局。</p><div className="confirm-actions"><button className="btn btn-outline" onClick={() => setShowAbandonConfirm(false)}>继续游戏</button><button className="btn btn-danger" onClick={onAbandon}>确认放弃</button></div></div></div>}
     {toast && <div className="toast" onClick={() => setToast('')}>{toast} <span>×</span></div>}
-    {handoffTurn && <div className="local-handoff-screen" role="dialog" aria-modal="true" aria-labelledby="local-handoff-title"><div className="local-handoff-card"><span className="eyebrow">LOCAL GAME · PASS THE DEVICE</span><div className="local-handoff-icon" aria-hidden="true">✦</div><h2 id="local-handoff-title">请将设备交给</h2><strong>{currentPlayer.name}</strong><p>准备好后，点击下方按钮开始本回合。</p><button className="btn btn-gold" onClick={() => setHandoffTurn(null)}>我已接手，开始游戏</button></div></div>}
+    {handoffPlayerIndex !== null && <div className="local-handoff-screen" role="dialog" aria-modal="true" aria-labelledby="local-handoff-title"><div className="local-handoff-card"><span className="eyebrow">LOCAL GAME · PASS THE DEVICE</span><div className="local-handoff-icon" aria-hidden="true">✦</div><h2 id="local-handoff-title">请将设备交给</h2><strong>{G.players[handoffPlayerIndex]?.name ?? currentPlayer.name}</strong><p>准备好后，点击下方按钮开始本回合。</p><button className="btn btn-gold" onClick={() => setHandoffPlayerIndex(null)}>我已接手，开始游戏</button></div></div>}
   </main>;
 }
 

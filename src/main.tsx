@@ -493,7 +493,7 @@ function App() {
   }, [client, localConfig]);
   const returnHome = () => { const liveState = (client as any)?.store?.getState?.() ?? snapshot; recordFinishedMatch(liveState); if (localConfig && liveState?.G?.phase === 'finished') { localStorage.removeItem(localSaveKey); setSavedLocal(null); } client?.stop(); remoteBotClients.forEach(({ client: botClient }) => botClient.stop()); setRemoteBotClients([]); setClient(null); setSnapshot(null); setScreen('home'); setReplayMode(false); setActiveBotSeats([]); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]); setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setLocalPlayerColors([...playerColors]); setBotDifficulty('normal'); const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url); };
   const abandonLocalGame = () => { localStorage.removeItem(localSaveKey); setSavedLocal(null); returnHome(); };
-  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} ownPlayerSeat={onlineRoom ? Number(onlineRoom.playerID) : undefined} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig || replayMode} localHandoffEnabled={!!localConfig && localConfig.playerCount - localConfig.botSeats.length > 1} isRoomHost={!!onlineRoom?.host} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
+  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} ownPlayerSeat={onlineRoom ? Number(onlineRoom.playerID) : undefined} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig || replayMode} localHandoffEnabled={!!localConfig && localConfig.playerCount > localConfig.botSeats.length} isRoomHost={!!onlineRoom?.host} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
   if (screen === 'waiting' && onlineRoom) {
     const players = roomMatch?.players || [];
     const full = players.length >= onlineRoom.numPlayers && players.slice(0, onlineRoom.numPlayers).every(p => !!p.name);
@@ -541,18 +541,23 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const handoffTurnKey = `${G.phase}:${G.round}:${ctx.turn ?? ''}:${currentPlayerIndex}:${G.setupStage ?? ''}`;
   const [handoffPlayerIndex, setHandoffPlayerIndex] = useState<number | null>(() => localHandoffEnabled && G.phase !== 'finished' && !botSeats.includes(currentPlayerIndex) ? currentPlayerIndex : null);
   const lastHandoffTurnKeyRef = React.useRef(handoffTurnKey);
-  const lastHumanSeatRef = React.useRef<number | null>(localHandoffEnabled && !botSeats.includes(currentPlayerIndex) ? currentPlayerIndex : null);
+  const lastTurnPlayerRef = React.useRef(currentPlayerIndex);
   useEffect(() => {
     const changedTurn = lastHandoffTurnKeyRef.current !== handoffTurnKey;
     lastHandoffTurnKeyRef.current = handoffTurnKey;
-    if (!localHandoffEnabled || G.phase === 'finished' || botSeats.includes(currentPlayerIndex)) {
+    if (!localHandoffEnabled || G.phase === 'finished') {
+      lastTurnPlayerRef.current = currentPlayerIndex;
       setHandoffPlayerIndex(null);
       return;
     }
     if (!changedTurn) return;
-    const previousHumanSeat = lastHumanSeatRef.current;
-    lastHumanSeatRef.current = currentPlayerIndex;
-    if (previousHumanSeat !== null && previousHumanSeat !== currentPlayerIndex) setHandoffPlayerIndex(currentPlayerIndex);
+    const previousPlayer = lastTurnPlayerRef.current;
+    lastTurnPlayerRef.current = currentPlayerIndex;
+    if (botSeats.includes(currentPlayerIndex)) {
+      setHandoffPlayerIndex(null);
+      return;
+    }
+    if (previousPlayer !== currentPlayerIndex) setHandoffPlayerIndex(currentPlayerIndex);
   }, [handoffTurnKey, localHandoffEnabled, G.phase, botSeats, currentPlayerIndex]);
   const localSeat = Number((client as any).playerID);
   const ownPlayerIndex = isLocal ? currentPlayerIndex : Number.isInteger(ownPlayerSeat) ? ownPlayerSeat! : Number.isInteger(localSeat) ? localSeat : currentPlayerIndex;

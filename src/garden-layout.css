@@ -331,6 +331,7 @@
 .bot-seat-options{display:flex;gap:3px;padding:2px;border:1px solid #475447;border-radius:4px;background:#17241e}
 .bot-seat-options button{border:0;border-radius:3px;background:transparent;color:#aaa99b;padding:5px 8px;font-size:9px;white-space:nowrap}
 .bot-seat-options button.selected{background:#625537;color:#fff0c5;box-shadow:0 1px 4px #0007}
+.seat-color-options{display:flex;align-items:center;gap:7px;padding:1px 2px;color:#bdb7a6;font-size:9px}.seat-color-options span{margin-right:2px}.seat-color-options button{width:20px;height:20px;padding:0;border:2px solid #e8ddc7;border-radius:50%;background:var(--seat-color);box-shadow:0 1px 3px #0008}.seat-color-options button.selected{outline:2px solid #d9ba72;outline-offset:2px}.seat-color-options button:disabled{opacity:.24;cursor:not-allowed}
 .setup-card .bot-seat-row>input{height:31px;margin:0;padding:0 8px;font-size:9px}
 .production-marker{width:6%;height:6%;border:0;box-shadow:none}
 .brewer-marker-art{width:6%;height:9%;transform:translate(-50%,-50%);filter:drop-shadow(0 0 1px #fff9) drop-shadow(0 2px 3px #000e)}
@@ -483,3 +484,4 @@
   .far-right-rail .player-roster{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:6px}
   .far-right-rail>.rail-heading:first-child,.far-right-rail .log-heading,.far-right-rail .log-list{grid-column:auto;grid-row:auto}
 }
+.round-first-player-icon{display:inline-grid;place-items:center;width:15px;height:15px;color:#e6c477;vertical-align:middle}.round-first-player-icon svg{width:100%;height:100%;fill:#e6c477;stroke:#f4e2b6;stroke-width:.8;stroke-linejoin:round;filter:drop-shadow(0 1px 2px #0008)}

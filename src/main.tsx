@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Client } from 'boardgame.io/client';
 import { SocketIO } from 'boardgame.io/multiplayer';
 import { LobbyClient } from 'boardgame.io/client';
-import { HeavenAle, availableBarrelIds, barrelGoals, barrelTokenPositions, canBuyFrom, canMoveTo, canScore, canSelectShedCell, canTakeExpansionCargo, gardenCells, lowestResources, monkNames, playerBoardPercent, privilegeCardPositions, productionTrackPositions, resourceColors, resourceLabels, resources, scoreBreakdown, scoreChoices, scoringDiscPositions, shedProductionProgress, startSlots, tileBaseCost, validShedSelection, type AleState, type Resource, type ShedChoice, type Tile } from './game';
+import { HeavenAle, availableBarrelIds, barrelGoals, barrelTokenPositions, canBuyFrom, canMoveTo, canScore, canSelectShedCell, canTakeExpansionCargo, gardenCells, lowestResources, monkNames, playerBoardPercent, playerColors, privilegeCardPositions, productionTrackPositions, resourceColors, resourceLabels, resources, scoreBreakdown, scoreChoices, scoringDiscPositions, shedProductionProgress, startSlots, tileBaseCost, validShedSelection, type AleState, type Resource, type ShedChoice, type Tile } from './game';
 import { chooseBotMove, type BotDifficulty } from './bot';
 import { BUILT_IN_STORAGE_SLOTS, UNLOCKABLE_STORAGE_SLOTS, cartRoute, emptyExpansionStorageSlots, ensureExpansionStorageLayout, storedCargoCount, validCartLoadChoices, type ExpansionCargo, type ExpansionPlayerBoard, type StorageExtension } from './expansion';
 import './style.css';
@@ -101,7 +101,7 @@ function GameOverScoreModal({ game, gameover, winnerNames, onExit, onClose }: { 
   </section></div>;
 }
 const localSaveKey = 'heaven-and-ale-local-session-v1';
-type LocalSave = { version: 1; sessionId?: string; playerCount: number; botSeats: number[]; botDifficulty: BotDifficulty; playerNames: string[]; expansionEnabled?: boolean; state: any; initialState: any; log: any[]; savedAt: number; botNames?: string[] };
+type LocalSave = { version: 1; sessionId?: string; playerCount: number; botSeats: number[]; botDifficulty: BotDifficulty; playerNames: string[]; playerColors?: string[]; expansionEnabled?: boolean; state: any; initialState: any; log: any[]; savedAt: number; botNames?: string[] };
 type MatchHistoryEntry = { id: string; mode: 'local' | 'online'; roomCode?: string; playedAt: number; playerCount: number; playerNames: string[]; botSeats: number[]; expansionEnabled: boolean; scores: number[]; winnerNames: string[]; state: any; initialState: any };
 const matchHistoryKey = 'heaven-and-ale-match-history-v1';
 function readMatchHistory(): MatchHistoryEntry[] {
@@ -164,11 +164,12 @@ function readLocalSave(): LocalSave | null {
       });
     }
     saved.playerNames ??= saved.state.G.players.map((player: { name: string }, i: number) => saved.botSeats.includes(i) ? player.name || saved.botNames?.[i] || `机器人${i + 1}` : player.name || `玩家${i + 1}`);
+    saved.playerColors ??= saved.state.G.players.map((player: { color: string }) => player.color);
     saved.expansionEnabled ??= saved.state.G.expansionEnabled === true;
     return saved;
   } catch { return null; }
 }
-function makeLocalGame(bots: number[], names: string[], expansionEnabled = false) {
+function makeLocalGame(bots: number[], names: string[], expansionEnabled = false, colors: string[] = playerColors) {
   const setup = HeavenAle.setup!;
   const botSeatSet = new Set(bots);
   return {
@@ -178,6 +179,7 @@ function makeLocalGame(bots: number[], names: string[], expansionEnabled = false
       const G = setup(args, { expansionEnabled });
       G.players.forEach((player, i) => {
         player.name = names[i]?.trim() || (botSeatSet.has(i) ? `机器人${i + 1}` : `玩家${i + 1}`);
+        if (playerColors.includes(colors[i])) player.color = colors[i];
       });
       return G;
     },
@@ -190,6 +192,7 @@ function App() {
   const [playerCount, setPlayerCount] = useState(2);
   const [botSeats, setBotSeats] = useState<number[]>([]);
   const [playerNames, setPlayerNames] = useState(['玩家1', '玩家2', '玩家3', '玩家4']);
+  const [localPlayerColors, setLocalPlayerColors] = useState<string[]>([...playerColors]);
   const [localExpansionEnabled, setLocalExpansionEnabled] = useState(false);
   const [botDifficulty, setBotDifficulty] = useState<BotDifficulty>('normal');
   const [activeBotSeats, setActiveBotSeats] = useState<number[]>([]);
@@ -214,11 +217,17 @@ function App() {
   const [replayMode, setReplayMode] = useState(false);
   const [localConfig, setLocalConfig] = useState<Omit<LocalSave, 'state' | 'initialState' | 'log' | 'savedAt' | 'version' | 'botNames'> | null>(null);
 
-  const startLocal = (count: number, bots: number[], difficulty: BotDifficulty = 'normal', names: string[] = [], expansionEnabled = false) => {
+  const startLocal = (count: number, bots: number[], difficulty: BotDifficulty = 'normal', names: string[] = [], expansionEnabled = false, colors: string[] = playerColors) => {
     const selectedBots = [...new Set(bots)].filter(seat => Number.isInteger(seat) && seat >= 0 && seat < count).sort((a, b) => a - b);
     const selectedNames = Array.from({ length: count }, (_, i) => names[i]?.trim() || (selectedBots.includes(i) ? `机器人${i + 1}` : `玩家${i + 1}`));
-    const config = { sessionId: crypto.randomUUID(), playerCount: count, botSeats: selectedBots, botDifficulty: difficulty, playerNames: selectedNames, expansionEnabled };
-    const c = Client({ game: makeLocalGame(selectedBots, selectedNames, expansionEnabled), numPlayers: count, debug: false });
+    const selectedColors: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const proposed = colors[i];
+      const color = playerColors.includes(proposed) && !selectedColors.includes(proposed) ? proposed : playerColors.find(candidate => !selectedColors.includes(candidate)) || playerColors[i];
+      selectedColors.push(color);
+    }
+    const config = { sessionId: crypto.randomUUID(), playerCount: count, botSeats: selectedBots, botDifficulty: difficulty, playerNames: selectedNames, playerColors: selectedColors, expansionEnabled };
+    const c = Client({ game: makeLocalGame(selectedBots, selectedNames, expansionEnabled, selectedColors), numPlayers: count, debug: false });
     c.start(); setLocalConfig(config); setClient(c); setSnapshot((c as any).store.getState()); setReplayMode(false); setScreen('game'); setActiveBotSeats(selectedBots); setBotSeats(selectedBots); setPlayerNames(selectedNames);
     setRoomInfo(selectedBots.length === count ? `机器人对局 · 全部由${difficulty === 'expert' ? '专家' : '普通'}机器人操控` : selectedBots.length ? `本地混合对局 · ${difficulty === 'expert' ? '专家' : '普通'}机器人 ×${selectedBots.length}` : '本地热座 · 轮流操作');
   };
@@ -235,11 +244,11 @@ function App() {
     const saved = readLocalSave();
     if (!saved) { setSavedLocal(null); return; }
     if (saved.state.G.phase === 'finished') { localStorage.removeItem(localSaveKey); setSavedLocal(null); return; }
-    const c = Client({ game: makeLocalGame(saved.botSeats, saved.playerNames, saved.expansionEnabled), numPlayers: saved.playerCount, debug: false });
+    const c = Client({ game: makeLocalGame(saved.botSeats, saved.playerNames, saved.expansionEnabled, saved.playerColors), numPlayers: saved.playerCount, debug: false });
     c.store.dispatch({ type: 'SYNC', state: saved.state, initialState: saved.initialState, log: saved.log, clientOnly: true });
     c.start();
-    setLocalConfig({ sessionId: saved.sessionId || crypto.randomUUID(), playerCount: saved.playerCount, botSeats: saved.botSeats, botDifficulty: saved.botDifficulty, playerNames: saved.playerNames, expansionEnabled: saved.expansionEnabled });
-    setClient(c); setSnapshot((c as any).store.getState()); setReplayMode(false); setActiveBotSeats(saved.botSeats); setPlayerNames(saved.playerNames); setBotDifficulty(saved.botDifficulty); setScreen('game');
+    setLocalConfig({ sessionId: saved.sessionId || crypto.randomUUID(), playerCount: saved.playerCount, botSeats: saved.botSeats, botDifficulty: saved.botDifficulty, playerNames: saved.playerNames, playerColors: saved.playerColors, expansionEnabled: saved.expansionEnabled });
+    setClient(c); setSnapshot((c as any).store.getState()); setReplayMode(false); setActiveBotSeats(saved.botSeats); setPlayerNames(saved.playerNames); setLocalPlayerColors(saved.playerColors || [...playerColors]); setBotDifficulty(saved.botDifficulty); setScreen('game');
     setRoomInfo(saved.botSeats.length === saved.playerCount ? `已恢复 · 全部由${saved.botDifficulty === 'expert' ? '专家' : '普通'}机器人操控` : saved.botSeats.length ? `已恢复本地混合对局 · ${saved.botDifficulty === 'expert' ? '专家' : '普通'}机器人 × ${saved.botSeats.length}` : '已恢复本地热座对局');
   };
   useEffect(() => { if (savedLocal && !new URLSearchParams(window.location.search).has('room')) resumeLocal(); }, []);
@@ -482,7 +491,7 @@ function App() {
   setSnapshot((client as any).store.getState()); persist();
   return () => { unsub(); client.stop(); };
   }, [client, localConfig]);
-  const returnHome = () => { const liveState = (client as any)?.store?.getState?.() ?? snapshot; recordFinishedMatch(liveState); if (localConfig && liveState?.G?.phase === 'finished') { localStorage.removeItem(localSaveKey); setSavedLocal(null); } client?.stop(); remoteBotClients.forEach(({ client: botClient }) => botClient.stop()); setRemoteBotClients([]); setClient(null); setSnapshot(null); setScreen('home'); setReplayMode(false); setActiveBotSeats([]); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]); setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setBotDifficulty('normal'); const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url); };
+  const returnHome = () => { const liveState = (client as any)?.store?.getState?.() ?? snapshot; recordFinishedMatch(liveState); if (localConfig && liveState?.G?.phase === 'finished') { localStorage.removeItem(localSaveKey); setSavedLocal(null); } client?.stop(); remoteBotClients.forEach(({ client: botClient }) => botClient.stop()); setRemoteBotClients([]); setClient(null); setSnapshot(null); setScreen('home'); setReplayMode(false); setActiveBotSeats([]); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]); setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setLocalPlayerColors([...playerColors]); setBotDifficulty('normal'); const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url); };
   const abandonLocalGame = () => { localStorage.removeItem(localSaveKey); setSavedLocal(null); returnHome(); };
   if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} ownPlayerSeat={onlineRoom ? Number(onlineRoom.playerID) : undefined} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig || replayMode} localHandoffEnabled={!!localConfig && localConfig.playerCount - localConfig.botSeats.length > 1} isRoomHost={!!onlineRoom?.host} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
   if (screen === 'waiting' && onlineRoom) {
@@ -509,9 +518,10 @@ function App() {
           <div className="bot-seat-toolbar"><span>玩家席位</span><div><button type="button" onClick={() => setAllSeatModes(false)}>全部设为真实玩家</button><button type="button" onClick={() => setAllSeatModes(true)}>全部设为机器人</button></div></div>
           <div className="bot-seat-list">{Array.from({ length: playerCount }, (_, seat) => { const isBot = botSeats.includes(seat); return <div className="bot-seat-row" key={seat}>
             <div className="bot-seat-toggle"><input className="bot-seat-name" aria-label={`玩家 ${seat + 1} 名称`} value={playerNames[seat]} maxLength={18} onChange={e => setPlayerNames(current => current.map((name, i) => i === seat ? e.target.value : name))} onBlur={e => { if (!e.target.value.trim()) setPlayerNames(current => current.map((name, i) => i === seat ? `${isBot ? '机器人' : '玩家'}${seat + 1}` : name)); }} /><div className="bot-seat-options" role="group" aria-label={`玩家 ${seat + 1} 类型`}><button type="button" className={!isBot ? 'selected' : ''} aria-pressed={!isBot} onClick={() => setSeatMode(seat, false)}>真实玩家</button><button type="button" className={isBot ? 'selected' : ''} aria-pressed={isBot} onClick={() => setSeatMode(seat, true)}>机器人</button></div></div>
+            <div className="seat-color-options" role="group" aria-label={`${playerNames[seat]}的颜色`}><span>颜色</span>{playerColors.map(color => { const colorLabels: Record<string, string> = { black: '黑色', yellow: '黄色', blue: '蓝色', red: '红色' }; const colorValues: Record<string, string> = { black: '#30302e', yellow: '#e4c843', blue: '#198fc8', red: '#d94a3e' }; const selected = localPlayerColors[seat] === color, taken = localPlayerColors.some((other, index) => index !== seat && other === color); return <button key={color} type="button" className={selected ? 'selected' : ''} disabled={taken} aria-label={colorLabels[color]} aria-pressed={selected} title={colorLabels[color]} style={{ ['--seat-color' as any]: colorValues[color] }} onClick={() => setLocalPlayerColors(current => current.map((value, index) => index === seat ? color : value))} />; })}</div>
           </div>; })}</div>
           {botSeats.length > 0 && <label>机器人难度<select value={botDifficulty} onChange={e => setBotDifficulty(e.target.value as BotDifficulty)}><option value="normal">普通 · 约 3 秒/步</option><option value="expert">专家 · 约 12 秒/步</option></select></label>}
-          <button className="btn btn-gold" onClick={() => startLocal(playerCount, botSeats, botDifficulty, playerNames, localExpansionEnabled)}>开始本地对局 <span>↗</span></button>
+          <button className="btn btn-gold" onClick={() => startLocal(playerCount, botSeats, botDifficulty, playerNames, localExpansionEnabled, localPlayerColors)}>开始本地对局 <span>↗</span></button>
         </div>
         <div className="setup-card online-card"><div className="card-kicker">PLAY TOGETHER</div><h2>线上大厅</h2><p>浏览公开等候桌，或创建一桌并邀请朋友加入。</p><label>玩家名称<input value={playerName} onChange={e => setSavedName(e.target.value)} onBlur={() => { if (!playerName.trim()) setSavedName('玩家1'); }} maxLength={18} /></label><label>游戏服务器<input value={serverUrl} onChange={e => setServerUrl(e.target.value)} /></label><div className="online-create-options"><label>总人数<select value={onlinePlayerCount} onChange={e => { const n = Number(e.target.value); setOnlinePlayerCount(n); setOnlineBotCount(current => Math.min(current, n - 1)); }}><option value={2}>2 人</option><option value={3}>3 人</option><option value={4}>4 人</option></select></label><label>机器人席位<select value={onlineBotCount} onChange={e => setOnlineBotCount(Number(e.target.value))}>{Array.from({ length: onlinePlayerCount }, (_, n) => n < onlinePlayerCount ? <option key={n} value={n}>{n === 0 ? '不加入机器人' : `加入 ${n} 个机器人`}</option> : null).slice(0, onlinePlayerCount)}</select></label></div><label className="expansion-toggle"><input type="checkbox" checked={onlineExpansionEnabled} onChange={e => setOnlineExpansionEnabled(e.target.checked)} /><span><b>启用扩展（测试版）</b><small>包括运输板、推车路线、酒厂交付和棚屋奖励</small></span></label>{onlineBotCount > 0 && <label>机器人难度<select value={onlineBotDifficulty} onChange={e => setOnlineBotDifficulty(e.target.value as BotDifficulty)}><option value="normal">普通</option><option value="expert">专家</option></select></label>}<div className="online-actions"><button className="btn btn-outline" disabled={busy} onClick={createRoom}>创建等候桌</button><div className="join-row"><input placeholder="房间号 / 链接" value={roomCode} onChange={e => { const v = e.target.value; const match = v.match(/[?&]room=([^&]+)/); setRoomCode(match ? decodeURIComponent(match[1]) : v); }} /><button className="btn btn-light" disabled={busy} onClick={() => void joinRoom()}>加入</button></div></div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="lobby-list-heading"><b>可加入的房间</b><button onClick={() => void refreshRooms()}>刷新</button></div><div className="lobby-room-list">{openRooms.filter(room => room.players?.some(p => p.name)).map(room => { const occupied = room.players.filter(p => p.name).length, cap = room.players.length || 0; return <button className="lobby-room" key={room.matchID} disabled={busy || occupied >= cap} onClick={() => { setRoomCode(room.matchID); void joinRoom(room.matchID); }}><span><b>房间 {room.matchID}</b><small>{room.players.filter(p => p.name).map(p => p.name).join('、')}</small></span><em>{occupied}/{cap} 人 · {occupied >= cap ? '已满' : '等待中'}{room.setupData?.expansionEnabled ? ' · 扩展' : ''}</em></button>; })}{openRooms.filter(room => room.players?.some(p => p.name)).length === 0 && <div className="lobby-empty">当前没有公开等候桌</div>}</div></div>
       </div>
@@ -531,10 +541,13 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const handoffTurnKey = `${G.phase}:${G.round}:${ctx.turn ?? ''}:${currentPlayerIndex}:${G.setupStage ?? ''}`;
   const [handoffPlayerIndex, setHandoffPlayerIndex] = useState<number | null>(null);
   const lastHandoffTurnKeyRef = React.useRef(handoffTurnKey);
+  const lastHandoffPhaseRef = React.useRef(G.phase);
   const lastHumanSeatRef = React.useRef<number | null>(localHandoffEnabled && !botSeats.includes(currentPlayerIndex) ? currentPlayerIndex : null);
   useEffect(() => {
     const changedTurn = lastHandoffTurnKeyRef.current !== handoffTurnKey;
+    const enteringFirstRound = lastHandoffPhaseRef.current === 'setup' && G.phase === 'play' && G.round === 1;
     lastHandoffTurnKeyRef.current = handoffTurnKey;
+    lastHandoffPhaseRef.current = G.phase;
     if (!localHandoffEnabled || G.phase === 'finished' || botSeats.includes(currentPlayerIndex)) {
       setHandoffPlayerIndex(null);
       return;
@@ -542,7 +555,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     if (!changedTurn) return;
     const previousHumanSeat = lastHumanSeatRef.current;
     lastHumanSeatRef.current = currentPlayerIndex;
-    if (previousHumanSeat !== null && previousHumanSeat !== currentPlayerIndex) setHandoffPlayerIndex(currentPlayerIndex);
+    if (enteringFirstRound || (previousHumanSeat !== null && previousHumanSeat !== currentPlayerIndex)) setHandoffPlayerIndex(currentPlayerIndex);
   }, [handoffTurnKey, localHandoffEnabled, G.phase, botSeats, currentPlayerIndex]);
   const localSeat = Number((client as any).playerID);
   const ownPlayerIndex = isLocal ? currentPlayerIndex : Number.isInteger(ownPlayerSeat) ? ownPlayerSeat! : Number.isInteger(localSeat) ? localSeat : currentPlayerIndex;
@@ -1473,9 +1486,15 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     else if (index >= 6 && index <= 9) placeScoreChoice('B', monkNames[index - 6]);
   };
   const playerCount = G.players.length;
-  const turnDirection = G.phase === 'setup' ? -1 : 1;
-  const orderStart = G.phase === 'setup' ? Number(G.startPlayer) - 1 : Number(G.startPlayer);
-  const actionOrder = Array.from({ length: playerCount }, (_, offset) => (orderStart + turnDirection * offset + playerCount * 2) % playerCount);
+  const fallbackOrder = Array.from({ length: playerCount }, (_, index) => index);
+  const isSeatOrder = (order: unknown): order is number[] => Array.isArray(order) && order.length === playerCount && new Set(order).size === playerCount && order.every(seat => Number.isInteger(seat) && seat >= 0 && seat < playerCount);
+  const playerOrder = isSeatOrder(G.playerOrder) ? G.playerOrder : fallbackOrder;
+  const firstOrder = isSeatOrder(G.firstRoundOrder) ? G.firstRoundOrder : [...playerOrder.slice(playerOrder.indexOf(G.startPlayer)), ...playerOrder.slice(0, playerOrder.indexOf(G.startPlayer))];
+  const roundOrderStart = playerOrder.indexOf(G.startPlayer);
+  const roundOrder = [...playerOrder.slice(roundOrderStart), ...playerOrder.slice(0, roundOrderStart)];
+  const actionOrder = G.phase === 'setup' && G.setupStage === 'starts'
+    ? Array.from({ length: playerCount }, (_, offset) => playerOrder[(roundOrderStart - 1 - offset + playerCount * 2) % playerCount])
+    : roundOrder;
   const ownOrderPosition = actionOrder.indexOf(ownPlayerIndex);
   const rosterOrder = ownOrderPosition < 0 ? actionOrder : [...actionOrder.slice(ownOrderPosition), ...actionOrder.slice(0, ownOrderPosition)];
   return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''}`} onDragStartCapture={event => event.preventDefault()}>
@@ -1564,7 +1583,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       <aside className={`right-rail ${!isViewingOwn ? 'is-inspecting-opponent' : ''}`}><div className="garden-heading"><div><h2>{me.name}的修道院</h2>{!isViewingOwn && <small className="inspection-hint">正在查看对手版图 · 只读</small>}</div><div className="garden-legend"></div></div><div className={`garden-board-pair ${G.expansionEnabled && G.expansion ? 'has-expansion' : ''}`}>{G.expansionEnabled && G.expansion && <div className="expansion-board-reserved"><ExpansionTransportBoard board={G.expansion.players[viewingPlayerIndex]} color={me.color} playerIndex={viewingPlayerIndex} pieceFlights={pieceFlights} storeEffectLabels={expansionStoreEffects} cargoPlacement={expansionBoardCargoPlacement} /></div>}<div className="garden-board-reserved"><Garden player={me} playerIndex={viewingPlayerIndex} pieceFlights={pieceFlights} selectedTile={isViewingCurrent && canPlace ? selectedTile : undefined} sourceIndex={currentActionSpace?.sourceIndex} coins={activePlayer.coins} canPlace={isViewingCurrent && canPlace} activePlayer={me} shedChoice={isViewingCurrent && canControlTurn && !expansionStorePrompt ? activeShedChoice : undefined} flightTileId={pieceFlights.find(flight => flight.kind === 'tile')?.tile?.id} flightTargetIndex={pieceFlights.find(flight => flight.kind === 'tile')?.targetIndex} flightScoreIndex={pieceFlights.find(flight => flight.kind === 'disc' && flight.playerIndex === viewingPlayerIndex)?.scoreIndex} scoreTargetIndices={scoreTargetIndices} onScoreTarget={placeScoreFromBoard} onShedToggle={(i) => { if (canControlTurn && isViewingCurrent) moves.toggleShedChoice(i); }} onSelect={(i) => { if (canControlTurn && isViewingCurrent) placeTile(i); }} cells={garden} storeTiles={G.expansionEnabled ? G.expansion?.players[viewingPlayerIndex]?.hutStoreTiles : undefined} storeSetup={canConfigureExpansionStores} selectedStoreId={selectedExpansionStoreId} storeSetupReady={G.expansion?.storeSetupReady?.[viewingPlayerIndex] ?? false} onStoreTarget={placeExpansionStoreTarget} /></div></div><div className="rail-heading">特权卡 · 点击弃置可得3个钱币</div><div className="privileges">{['A', 'B', 'C', 'D', 'E'].filter(card => !me.privilegePairs.includes(card)).map(card => { const inHand = me.privileges.includes(card); const earned = me.privilegePairs.includes(card); const blocked = G.phase !== 'play' || !canControlTurn || !isViewingCurrent || (!!G.confirmationKind && G.confirmationKind !== 'turn') || !!privilegePrompt; return <div className={`privilege ${inHand ? '' : 'used'}`} data-privilege-card={card} key={card}><img src={`/Images/privilege_card_front_${card}.png`} alt={`特权卡 ${card}`} />{inHand ? <button disabled={blocked} onClick={() => { if (blocked || G.phase !== 'play') return; animatePrivilegeCoins(currentPlayerIndex, card, 3); moves.discardPrivilege(card); }}>弃置 +3</button> : <span>{earned ? '已放置' : '已弃置'}</span>}</div>; })}</div><div className="rail-heading">已领取酒桶 <span className="count">{me.claimedBarrels.length}</span></div><div className="barrel-strip">{me.claimedBarrels.map((b, i) => <span key={`${b.id}-${i}`} className={`barrel-claimed-item ${b.size}`} style={{ visibility: pieceFlights.some(flight => flight.kind === 'barrel' && flight.playerIndex === viewingPlayerIndex && flight.barrelId === b.id && flight.barrelSize === b.size) ? 'hidden' : 'visible' }} title={`酒桶${b.id}：${barrelGoals[b.id - 1]} ${b.size === 'large' ? '大酒桶，4分' : '小酒桶，2分'}`}><BarrelGoalArt id={b.id} className="claimed-barrel-art" /><small>{b.size === 'large' ? '大 · 4分' : '小 · 2分'}</small></span>)}</div><div className="score-summary"><span>当前钱币</span><b><i className="player-coin-icon" aria-label="钱币" /> {me.coins}</b><span>酒桶计分</span><b>{viewingScoring.barrelScore + viewingScoring.expansionBarrelScore} 分</b></div></aside>
       <aside className="far-right-rail"><div className="rail-heading">玩家信息 · 点击查看版图</div><div className="player-roster">{rosterOrder.map(i => { const p = G.players[i];
         const scoring = scoreBreakdown(p, G.expansionEnabled ? G.expansion?.players[i] : undefined); const searchStatus = botSearchStatus?.playerID === i ? botSearchStatus : sharedBotSearches.find(status => status.playerID === i && status.thinking && Date.now() - status.updatedAt < 12000); return <div className={`player-info-unit ${i === viewingPlayerIndex ? 'is-viewing' : ''}`} data-player-index={i} key={i} role="button" tabIndex={0} aria-label={`查看${p.name}的玩家版图`} onClick={() => setViewingPlayerIndex(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingPlayerIndex(i); } }}>
-          <div className={`player-card ${i === Number(ctx.currentPlayer) ? 'is-turn' : ''} ${p.retired ? 'is-done' : ''}`}><div className={`avatar ${p.color}`}>{p.name.slice(-1)}</div><div className="player-name"><span className="player-name-score">{p.name}{i === ownPlayerIndex && <b className="self-player-badge">你</b>}<b title={liveScoreTitle(p, scoring, G.expansionEnabled ? G.expansion?.players[i] : undefined)}>★ {scoring.total}</b></span><small>{botSeats.includes(i) ? `${botDifficulty === 'expert' ? '专家' : '普通'}机器人${i === Number(ctx.currentPlayer) ? searchStatus ? ` · 搜索中 ${searchStatus.iterations} 次` : ' · 正在行动' : ''}` : p.retired ? '本轮已休息' : i === Number(ctx.currentPlayer) ? '正在行动' : '等待中'}</small></div><div className="money"><i className="player-coin-icon" aria-label="钱币" /> {p.coins}</div></div>
+          <div className={`player-card ${i === Number(ctx.currentPlayer) ? 'is-turn' : ''} ${p.retired ? 'is-done' : ''}`}><div className={`avatar ${p.color}`} title={`首轮第 ${firstOrder.indexOf(i) + 1} 个行动`} aria-label={`首轮行动顺序第 ${firstOrder.indexOf(i) + 1} 位`}>{firstOrder.indexOf(i) + 1}</div><div className="player-name"><span className="player-name-score">{p.name}{G.phase === 'play' && i === G.startPlayer && <span className="round-first-player-icon" title="本轮先手" aria-label="本轮先手"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 14V2m1 1h8l-2.4 3L12 9H4" /></svg></span>}{i === ownPlayerIndex && <b className="self-player-badge">你</b>}<b title={liveScoreTitle(p, scoring, G.expansionEnabled ? G.expansion?.players[i] : undefined)}>★ {scoring.total}</b></span><small>{botSeats.includes(i) ? `${botDifficulty === 'expert' ? '专家' : '普通'}机器人${i === Number(ctx.currentPlayer) ? searchStatus ? ` · 搜索中 ${searchStatus.iterations} 次` : ' · 正在行动' : ''}` : p.retired ? '本轮已休息' : i === Number(ctx.currentPlayer) ? '正在行动' : '等待中'}</small></div><div className="money"><i className="player-coin-icon" aria-label="钱币" /> {p.coins}</div></div>
           <div className="player-live-details" title={`按当前状态预演终局：资源归并后最低为 ${scoring.minResource}，生产 ${scoring.productionScore} 分；酒桶 ${scoring.barrelScore} 分；起始奖励 ${scoring.startBonus} 分。`}>
             <div className="player-info-table">
               <div className="player-info-row resource-icon-row">{resources.map(resource => <span key={resource} className="resource-stat" title={`${resourceLabels[resource]}：${p.tracks[resource]}`}><img className="player-board-resource" src={`/Images/resource_icon_${resource}.png`} alt="" /><b>{p.tracks[resource]}</b></span>)}</div>

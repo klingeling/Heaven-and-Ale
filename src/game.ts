@@ -15,6 +15,8 @@ export type ShedChoice = { hutIndex: number; value: number; brewerAdvance: numbe
 export type PrivilegePrompt = { kind: 'pair'; pairIndex: number; playerIndex?: number };
 export type AleState = {
   players: PlayerState[]; round: number; maxRounds: number; track: ActionSpace[]; resources: Tile[][]; monks: Tile[][];
+  /** Randomized once at setup; keeps neighbor relationships independent of join order. */
+  playerOrder: number[]; firstRoundOrder: number[];
   /** The expansion is opt-in; false leaves the base game state and rules unchanged. */
   expansionEnabled: boolean;
   expansion: ExpansionState | null;
@@ -137,6 +139,20 @@ const emptyPlayer = (id: number, color: string): PlayerState => ({
   brewer: -9, tracks: { wood: 1, yeast: -2, hops: -4, water: -6, barley: -8 },
   scores: { monk: [false, false, false, false], resource: [null, null, null, null, null] }, privileges: ['A', 'B', 'C', 'D', 'E'], privilegePairs: [null, null, null, null, null], claimedBarrels: [],
 });
+function getPlayerOrder(G: Pick<AleState, 'players' | 'playerOrder'>): number[] {
+  const fallback = Array.from({ length: G.players.length }, (_, index) => index);
+  const order = G.playerOrder;
+  return Array.isArray(order) && order.length === G.players.length && new Set(order).size === G.players.length && order.every(seat => Number.isInteger(seat) && seat >= 0 && seat < G.players.length) ? order : fallback;
+}
+function rotateSeatOrder(order: number[], firstSeat: number): number[] {
+  const start = order.indexOf(firstSeat);
+  const index = start < 0 ? 0 : start;
+  return [...order.slice(index), ...order.slice(0, index)];
+}
+function previousSeat(G: Pick<AleState, 'players' | 'playerOrder'>, seat: number): number {
+  const order = getPlayerOrder(G), index = order.indexOf(seat);
+  return order[(index - 1 + order.length) % order.length] ?? seat;
+}
 const makeDeck = (G: AleState, random: { Shuffle<T>(items: T[]): T[] }, rounds: number) => {
   const resourceTiles = (tier: 'I' | 'II'): Tile[] => {
     const tiles: Tile[] = [];
@@ -195,11 +211,13 @@ export const HeavenAle: Game<AleState> = {
   setup: ({ ctx, random }, setupData?: { expansionEnabled?: boolean }) => {
     const count = Math.max(2, Math.min(4, ctx.numPlayers));
     const players = Array.from({ length: count }, (_, i) => emptyPlayer(i, playerColors[i]));
-    const startPlayer = random.Shuffle(Array.from({ length: count }, (_, i) => i))[0] ?? 0;
+    const playerOrder = random.Shuffle(Array.from({ length: count }, (_, i) => i));
+    const startPlayer = random.Shuffle([...playerOrder])[0] ?? 0;
+    const firstRoundOrder = rotateSeatOrder(playerOrder, startPlayer);
     players[startPlayer].startSlot = 0;
     const expansionEnabled = setupData?.expansionEnabled === true;
     const expansion = expansionEnabled ? createExpansionState(count, track.length) : null;
-    const G: AleState = { players, round: 1, expansionEnabled, expansion,
+    const G: AleState = { players, playerOrder, firstRoundOrder, round: 1, expansionEnabled, expansion,
       maxRounds: count === 2 ? 3 : count === 3 ? 4 : 6, track, resources: [], monks: [], resourceDecks: [], monkDecks: [], scores: [1, 1, 1, 1, 1, 1],
       barrels: Array.from({ length: expansionEnabled ? 13 : 12 }, (_, i) => ({ id: i + 1, remaining: 2 })), phase: 'setup', setupStage: 'starts', pending: null, log: [`随机决定${players[startPlayer].name}为首位玩家并放在起始玩家格；其他玩家逆时针选择起始奖励。`],
       startPlayer, firstTurnAfterSetup: false, startChoice: null, undoSnapshot: null, stepUndoSnapshots: [], confirmationKind: null, shedChoices: [], privilegePrompts: [] };
@@ -208,19 +226,20 @@ export const HeavenAle: Game<AleState> = {
   },
   turn: { minMoves: 1, maxMoves: 99,
     order: {
-      first: ({ G }) => G.phase === 'setup' ? (G.setupStage === 'expansion-stores' ? G.startPlayer : (G.startPlayer + G.players.length - 1) % G.players.length) : G.startPlayer,
+      first: ({ G }) => G.phase === 'setup' ? (G.setupStage === 'expansion-stores' ? G.startPlayer : previousSeat(G, G.startPlayer)) : G.startPlayer,
       next: ({ G, ctx }) => {
+        const order = getPlayerOrder(G), currentIndex = order.indexOf(Number(ctx.currentPlayer));
         if (G.phase === 'setup' && G.setupStage === 'expansion-stores' && G.expansion) {
           for (let step = 1; step <= G.players.length; step++) {
-            const candidate = (Number(ctx.currentPlayer) + step) % G.players.length;
+            const candidate = order[(currentIndex + step) % order.length];
             if (!G.expansion.storeSetupReady[candidate]) return candidate;
           }
           return undefined;
         }
-        if (G.phase === 'setup') return (Number(ctx.currentPlayer) + G.players.length - 1) % G.players.length;
+        if (G.phase === 'setup') return order[(currentIndex - 1 + order.length) % order.length];
         if (G.firstTurnAfterSetup) return G.startPlayer;
         for (let step = 1; step <= G.players.length; step++) {
-          const nextPlayer = (Number(ctx.currentPlayer) + step) % G.players.length;
+          const nextPlayer = order[(currentIndex + step) % order.length];
           if (!G.players[nextPlayer].retired) return nextPlayer;
         }
         return undefined;

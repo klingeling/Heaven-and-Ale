@@ -985,7 +985,7 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
   };
   const startPieceFlightFromRects = (kind: PieceFlight['kind'], from: { left: number; top: number; width: number; height: number }, target: { left: number; top: number; width: number; height: number }, data: Partial<PieceFlight> = {}) => {
     if (from.width < 2 || from.height < 2 || target.width < 2 || target.height < 2) return 0;
-    const scale = Math.min(target.width / from.width, target.height / from.height);
+    const scale = isReplaying ? 1 : Math.min(target.width / from.width, target.height / from.height);
     const id = `${kind}-${Date.now()}-${Math.random()}`;
     const durationMs = data.pathPoints?.length
       ? kind === 'meeple'

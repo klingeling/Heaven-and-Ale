@@ -518,7 +518,7 @@ function App() {
           <div className="bot-seat-toolbar"><span>玩家席位</span><div><button type="button" onClick={() => setAllSeatModes(false)}>全部设为真实玩家</button><button type="button" onClick={() => setAllSeatModes(true)}>全部设为机器人</button></div></div>
           <div className="bot-seat-list">{Array.from({ length: playerCount }, (_, seat) => { const isBot = botSeats.includes(seat); return <div className="bot-seat-row" key={seat}>
             <div className="bot-seat-toggle"><input className="bot-seat-name" aria-label={`玩家 ${seat + 1} 名称`} value={playerNames[seat]} maxLength={18} onChange={e => setPlayerNames(current => current.map((name, i) => i === seat ? e.target.value : name))} onBlur={e => { if (!e.target.value.trim()) setPlayerNames(current => current.map((name, i) => i === seat ? `${isBot ? '机器人' : '玩家'}${seat + 1}` : name)); }} /><div className="bot-seat-options" role="group" aria-label={`玩家 ${seat + 1} 类型`}><button type="button" className={!isBot ? 'selected' : ''} aria-pressed={!isBot} onClick={() => setSeatMode(seat, false)}>真实玩家</button><button type="button" className={isBot ? 'selected' : ''} aria-pressed={isBot} onClick={() => setSeatMode(seat, true)}>机器人</button></div></div>
-            <div className="seat-color-options" role="group" aria-label={`${playerNames[seat]}的颜色`}><span>颜色</span>{playerColors.map(color => { const colorLabels: Record<string, string> = { black: '黑色', yellow: '黄色', blue: '蓝色', red: '红色' }; const colorValues: Record<string, string> = { black: '#30302e', yellow: '#e4c843', blue: '#198fc8', red: '#d94a3e' }; const selected = localPlayerColors[seat] === color, taken = localPlayerColors.some((other, index) => index !== seat && other === color); return <button key={color} type="button" className={selected ? 'selected' : ''} disabled={taken} aria-label={colorLabels[color]} aria-pressed={selected} title={colorLabels[color]} style={{ ['--seat-color' as any]: colorValues[color] }} onClick={() => setLocalPlayerColors(current => current.map((value, index) => index === seat ? color : value))} />; })}</div>
+            <div className="seat-color-options" role="group" aria-label={`${playerNames[seat]}的颜色`}><span>颜色</span>{playerColors.map(color => { const colorLabels: Record<string, string> = { black: '黑色', yellow: '黄色', blue: '蓝色', red: '红色' }; const colorValues: Record<string, string> = { black: '#30302e', yellow: '#e4c843', blue: '#198fc8', red: '#d94a3e' }; const selected = localPlayerColors[seat] === color; return <button key={color} type="button" className={selected ? 'selected' : ''} aria-label={colorLabels[color]} aria-pressed={selected} title={colorLabels[color]} style={{ ['--seat-color' as any]: colorValues[color] }} onClick={() => setLocalPlayerColors(current => { const otherSeat = current.indexOf(color); return current.map((value, index) => index === seat ? color : index === otherSeat ? current[seat] : value); })} />; })}</div>
           </div>; })}</div>
           {botSeats.length > 0 && <label>机器人难度<select value={botDifficulty} onChange={e => setBotDifficulty(e.target.value as BotDifficulty)}><option value="normal">普通 · 约 3 秒/步</option><option value="expert">专家 · 约 12 秒/步</option></select></label>}
           <button className="btn btn-gold" onClick={() => startLocal(playerCount, botSeats, botDifficulty, playerNames, localExpansionEnabled, localPlayerColors)}>开始本地对局 <span>↗</span></button>
@@ -539,15 +539,12 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const G = onlinePlayerNames ? { ...rawG, players: rawG.players.map((player, i) => onlinePlayerNames[i] ? { ...player, name: onlinePlayerNames[i] } : player) } as AleState : rawG;
   const ctx = state.ctx, currentPlayerIndex = Number(ctx.currentPlayer);
   const handoffTurnKey = `${G.phase}:${G.round}:${ctx.turn ?? ''}:${currentPlayerIndex}:${G.setupStage ?? ''}`;
-  const [handoffPlayerIndex, setHandoffPlayerIndex] = useState<number | null>(null);
+  const [handoffPlayerIndex, setHandoffPlayerIndex] = useState<number | null>(() => localHandoffEnabled && G.phase !== 'finished' && !botSeats.includes(currentPlayerIndex) ? currentPlayerIndex : null);
   const lastHandoffTurnKeyRef = React.useRef(handoffTurnKey);
-  const lastHandoffPhaseRef = React.useRef(G.phase);
   const lastHumanSeatRef = React.useRef<number | null>(localHandoffEnabled && !botSeats.includes(currentPlayerIndex) ? currentPlayerIndex : null);
   useEffect(() => {
     const changedTurn = lastHandoffTurnKeyRef.current !== handoffTurnKey;
-    const enteringFirstRound = lastHandoffPhaseRef.current === 'setup' && G.phase === 'play' && G.round === 1;
     lastHandoffTurnKeyRef.current = handoffTurnKey;
-    lastHandoffPhaseRef.current = G.phase;
     if (!localHandoffEnabled || G.phase === 'finished' || botSeats.includes(currentPlayerIndex)) {
       setHandoffPlayerIndex(null);
       return;
@@ -555,7 +552,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     if (!changedTurn) return;
     const previousHumanSeat = lastHumanSeatRef.current;
     lastHumanSeatRef.current = currentPlayerIndex;
-    if (enteringFirstRound || (previousHumanSeat !== null && previousHumanSeat !== currentPlayerIndex)) setHandoffPlayerIndex(currentPlayerIndex);
+    if (previousHumanSeat !== null && previousHumanSeat !== currentPlayerIndex) setHandoffPlayerIndex(currentPlayerIndex);
   }, [handoffTurnKey, localHandoffEnabled, G.phase, botSeats, currentPlayerIndex]);
   const localSeat = Number((client as any).playerID);
   const ownPlayerIndex = isLocal ? currentPlayerIndex : Number.isInteger(ownPlayerSeat) ? ownPlayerSeat! : Number.isInteger(localSeat) ? localSeat : currentPlayerIndex;

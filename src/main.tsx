@@ -985,6 +985,12 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
   };
   const startPieceFlightFromRects = (kind: PieceFlight['kind'], from: { left: number; top: number; width: number; height: number }, target: { left: number; top: number; width: number; height: number }, data: Partial<PieceFlight> = {}) => {
     if (from.width < 2 || from.height < 2 || target.width < 2 || target.height < 2) return 0;
+    const flightFrom = isReplaying ? {
+      left: from.left + from.width / 2 - target.width / 2,
+      top: from.top + from.height / 2 - target.height / 2,
+      width: target.width,
+      height: target.height,
+    } : from;
     const scale = isReplaying ? 1 : Math.min(target.width / from.width, target.height / from.height);
     const id = `${kind}-${Date.now()}-${Math.random()}`;
     const durationMs = data.pathPoints?.length
@@ -992,7 +998,7 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
         ? Math.min(500, Math.max(160, (data.pathPoints.length - 1) * 28))
         : Math.min(2800, Math.max(760, (data.pathPoints.length - 1) * 165))
       : 980;
-    const flight: PieceFlight = { id, kind, left: from.left, top: from.top, width: from.width, height: from.height, dx: target.left + target.width / 2 - (from.left + from.width / 2), dy: target.top + target.height / 2 - (from.top + from.height / 2), scale, durationMs, started: false, ...data };
+    const flight: PieceFlight = { id, kind, left: flightFrom.left, top: flightFrom.top, width: flightFrom.width, height: flightFrom.height, dx: target.left + target.width / 2 - (flightFrom.left + flightFrom.width / 2), dy: target.top + target.height / 2 - (flightFrom.top + flightFrom.height / 2), scale, durationMs, started: false, ...data };
     const reversingStepUndo = undoStepTargetStateIdRef.current === state._stateID;
     const pathPoints = flight.pathPoints;
     setPieceFlights(current => [...current, flight]);

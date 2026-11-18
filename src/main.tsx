@@ -169,19 +169,13 @@ function readLocalSave(): LocalSave | null {
     return saved;
   } catch { return null; }
 }
-function makeLocalGame(bots: number[], names: string[], expansionEnabled = false, colors: string[] = playerColors) {
+function makeLocalGame(_bots: number[], names: string[], expansionEnabled = false, colors: string[] = playerColors) {
   const setup = HeavenAle.setup!;
-  const botSeatSet = new Set(bots);
   return {
     ...HeavenAle,
     playerView: ({ G }: { G: AleState }) => G,
     setup: (args: any) => {
-      const G = setup(args, { expansionEnabled });
-      G.players.forEach((player, i) => {
-        player.name = names[i]?.trim() || (botSeatSet.has(i) ? `机器人${i + 1}` : `玩家${i + 1}`);
-        if (playerColors.includes(colors[i])) player.color = colors[i];
-      });
-      return G;
+      return setup(args, { expansionEnabled, playerNames: names, playerColors: colors });
     },
   };
 }

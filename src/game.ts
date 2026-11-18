@@ -153,6 +153,13 @@ function previousSeat(G: Pick<AleState, 'players' | 'playerOrder'>, seat: number
   const order = getPlayerOrder(G), index = order.indexOf(seat);
   return order[(index - 1 + order.length) % order.length] ?? seat;
 }
+function refreshStartingPlayerLog(G: AleState) {
+  const player = G.players[G.startPlayer];
+  const logIndex = G.log.findIndex(line => line.startsWith('随机决定'));
+  if (!player || logIndex < 0) return;
+  const colorNames: Record<string, string> = { black: '黑色', yellow: '黄色', blue: '蓝色', red: '红色' };
+  G.log[logIndex] = `随机决定${player.name}（${colorNames[player.color] ?? player.color}）为首位玩家并放在起始玩家格；其他玩家逆时针选择起始奖励。`;
+}
 const makeDeck = (G: AleState, random: { Shuffle<T>(items: T[]): T[] }, rounds: number) => {
   const resourceTiles = (tier: 'I' | 'II'): Tile[] => {
     const tiles: Tile[] = [];
@@ -208,9 +215,15 @@ function redactExpansionStoreSetup(G: AleState, playerID: string | null): AleSta
 export const HeavenAle: Game<AleState> = {
   name: 'heaven-and-ale',
   playerView: ({ G, playerID }) => redactExpansionStoreSetup(G, playerID ?? null),
-  setup: ({ ctx, random }, setupData?: { expansionEnabled?: boolean }) => {
+  setup: ({ ctx, random }, setupData?: { expansionEnabled?: boolean; playerNames?: string[]; playerColors?: string[] }) => {
     const count = Math.max(2, Math.min(4, ctx.numPlayers));
-    const players = Array.from({ length: count }, (_, i) => emptyPlayer(i, playerColors[i]));
+    const players = Array.from({ length: count }, (_, i) => {
+      const player = emptyPlayer(i, playerColors[i]);
+      player.name = setupData?.playerNames?.[i]?.trim() || player.name;
+      const selectedColor = setupData?.playerColors?.[i];
+      if (selectedColor && playerColors.includes(selectedColor)) player.color = selectedColor;
+      return player;
+    });
     const playerOrder = random.Shuffle(Array.from({ length: count }, (_, i) => i));
     const startPlayer = random.Shuffle([...playerOrder])[0] ?? 0;
     const firstRoundOrder = rotateSeatOrder(playerOrder, startPlayer);
@@ -221,6 +234,7 @@ export const HeavenAle: Game<AleState> = {
       maxRounds: count === 2 ? 3 : count === 3 ? 4 : 6, track, resources: [], monks: [], resourceDecks: [], monkDecks: [], scores: [1, 1, 1, 1, 1, 1],
       barrels: Array.from({ length: expansionEnabled ? 13 : 12 }, (_, i) => ({ id: i + 1, remaining: 2 })), phase: 'setup', setupStage: 'starts', pending: null, log: [`随机决定${players[startPlayer].name}为首位玩家并放在起始玩家格；其他玩家逆时针选择起始奖励。`],
       startPlayer, firstTurnAfterSetup: false, startChoice: null, undoSnapshot: null, stepUndoSnapshots: [], confirmationKind: null, shedChoices: [], privilegePrompts: [] };
+    refreshStartingPlayerLog(G);
     makeDeck(G, random, G.maxRounds);
     return G;
   },
@@ -300,7 +314,10 @@ export const HeavenAle: Game<AleState> = {
       const player = G.players[Number(playerID)];
       if (!player || typeof name !== 'string') return;
       const trimmed = name.trim().slice(0, 18);
-      if (trimmed) player.name = trimmed;
+      if (trimmed) {
+        player.name = trimmed;
+        if (Number(playerID) === G.startPlayer) refreshStartingPlayerLog(G);
+      }
     },
     chooseStartSlot: ({ G, ctx }, slot: number) => {
       const player = G.players[Number(ctx.currentPlayer)];
@@ -623,7 +640,7 @@ export const HeavenAle: Game<AleState> = {
         : `${tile.monk}-${tile.value}`;
       const gardenCell = gardenCells[cellIndex];
       const sideDescription = side === 'sun' ? '向阳面' : '阴凉面';
-      G.log.unshift(`${p.name} 在第${pending.space + 1}格「${space.label}」购买${tileDescription}，花费 ${cost} 钱币，放置在玩家版图第 ${gardenCell.row + 1} 行第 ${gardenCell.col + 1} 格（${sideDescription}）。`);
+      G.log.unshift(`${p.name} 在第${pending.space + 1}格「${space.label}」购买「${tileDescription}」，花费${cost}个钱币，放置在玩家版图第${gardenCell.row + 1}行第${gardenCell.col + 1}格(${sideDescription})。`);
       settleHuts(G, p);
       // Stay on the action space so the player may buy more tiles from this
       // supply. Any resulting shed choice is resolved before buying again.

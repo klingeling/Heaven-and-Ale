@@ -669,7 +669,9 @@ export const HeavenAle: Game<AleState> = {
       const rewards: string[] = [];
       if (choice === 'A') {
         const value = Number(option);
-        p.scores.x = markerIndex;
+        // Keep the production value shown on the scoring disc (1–5). The
+        // supply marker position is zero-based and is unrelated to that value.
+        p.scores.x = value;
         p.board.forEach(c => { if (c.tile?.kind === 'resource' && c.tile.value === value) rewards.push(activateWithSummary(p, c.tile, c.side)); });
       } else if (choice === 'B') {
         const monk = monkNames.indexOf(String(option));

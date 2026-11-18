@@ -187,7 +187,7 @@ function bestScoreChoice(p: PlayerState, G: AleState, category: 'A' | 'B' | 'C',
   if (p.scores.x !== undefined) priorDiscs.add(0);
   p.scores.resource.forEach((r, i) => { if (r) priorDiscs.add(i + 1); });
   p.scores.monk.forEach((used, i) => { if (used) priorDiscs.add(i + 6); });
-  if (category === 'A') next.scores.x = 0;
+  if (category === 'A') next.scores.x = Number(option);
   else if (category === 'C') next.scores.resource[next.scores.resource.indexOf(null)] = option as Resource;
   else next.scores.monk[monkNames.indexOf(String(option))] = true;
 

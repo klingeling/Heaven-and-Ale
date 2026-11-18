@@ -14,6 +14,24 @@ type AnyClient = ReturnType<typeof Client>;
 type MotionPoint = { x: number; y: number };
 type MovementTrail = { id: string; kind: PieceFlight['kind']; playerIndex?: number; resourceKey?: Resource; pathPoints: MotionPoint[]; durationMs: number; started: boolean; scrollX: number; scrollY: number };
 type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean };
+type ReplayViewState = Pick<AleState, 'players' | 'round' | 'maxRounds' | 'resources' | 'monks' | 'scores' | 'barrels' | 'phase' | 'setupStage' | 'pending' | 'startPlayer' | 'firstTurnAfterSetup' | 'startChoice' | 'expansionEnabled' | 'expansion' | 'playerOrder' | 'firstRoundOrder' | 'logCycle'>;
+type ReplayFrame = { id: string; logStart: number; logEnd: number; playerIndex: number; turn?: number; state: ReplayViewState };
+const replayFrameLimit = 500;
+const replayStorageKeyName = (key: string) => `heaven-and-ale-replay-v1-${key}`;
+function readReplayFrames(key: string): ReplayFrame[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(replayStorageKeyName(key)) || '[]');
+    return Array.isArray(value) ? value.filter((frame): frame is ReplayFrame => !!frame && typeof frame.id === 'string' && frame.state && Number.isInteger(frame.playerIndex) && Number.isInteger(frame.logStart) && Number.isInteger(frame.logEnd)) : [];
+  } catch { return []; }
+}
+function persistReplayFrames(key: string, frames: ReplayFrame[]) {
+  let retained = frames;
+  while (retained.length) {
+    try { localStorage.setItem(replayStorageKeyName(key), JSON.stringify(retained)); return retained; }
+    catch { retained = retained.slice(Math.max(1, Math.ceil(retained.length * .1))); }
+  }
+  return frames.slice(-1);
+}
 function smoothMotionPath(points: MotionPoint[]) {
   if (!points.length) return '';
   let smoothPoints = points.map(point => ({ ...point }));
@@ -487,7 +505,7 @@ function App() {
   }, [client, localConfig]);
   const returnHome = () => { const liveState = (client as any)?.store?.getState?.() ?? snapshot; recordFinishedMatch(liveState); if (localConfig && liveState?.G?.phase === 'finished') { localStorage.removeItem(localSaveKey); setSavedLocal(null); } client?.stop(); remoteBotClients.forEach(({ client: botClient }) => botClient.stop()); setRemoteBotClients([]); setClient(null); setSnapshot(null); setScreen('home'); setReplayMode(false); setActiveBotSeats([]); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]); setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setLocalPlayerColors([...playerColors]); setBotDifficulty('normal'); const url = new URL(window.location.href); url.searchParams.delete('room'); window.history.replaceState({}, '', url); };
   const abandonLocalGame = () => { localStorage.removeItem(localSaveKey); setSavedLocal(null); returnHome(); };
-  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} ownPlayerSeat={onlineRoom ? Number(onlineRoom.playerID) : undefined} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig || replayMode} localHandoffEnabled={!!localConfig && localConfig.playerCount > localConfig.botSeats.length} isRoomHost={!!onlineRoom?.host} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
+  if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} replayStorageKey={localConfig ? 'local-' + localConfig.sessionId : roomCode ? 'online-' + roomCode : 'history-' + snapshot._stateID} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} ownPlayerSeat={onlineRoom ? Number(onlineRoom.playerID) : undefined} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig || replayMode} localHandoffEnabled={!!localConfig && localConfig.playerCount > localConfig.botSeats.length} isRoomHost={!!onlineRoom?.host} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
   if (screen === 'waiting' && onlineRoom) {
     const players = roomMatch?.players || [];
     const full = players.length >= onlineRoom.numPlayers && players.slice(0, onlineRoom.numPlayers).every(p => !!p.name);
@@ -528,36 +546,78 @@ function App() {
   </main>;
 }
 
-function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClients, ownPlayerSeat, playerName, onlinePlayerNames, remoteBotDifficulty, botDifficulty, isLocal, localHandoffEnabled, isRoomHost, onlineVoteState, sharedBotSearches, onBotSearchUpdate, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; ownPlayerSeat?: number; playerName?: string; onlinePlayerNames?: string[]; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; localHandoffEnabled: boolean; isRoomHost: boolean; onlineVoteState: { votes: number[]; passed: boolean }; sharedBotSearches: BotSearchUpdate[]; onBotSearchUpdate: (status: BotSearchUpdate | null) => void; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
+function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeats, remoteBotClients, ownPlayerSeat, playerName, onlinePlayerNames, remoteBotDifficulty, botDifficulty, isLocal, localHandoffEnabled, isRoomHost, onlineVoteState, sharedBotSearches, onBotSearchUpdate, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; replayStorageKey: string; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; ownPlayerSeat?: number; playerName?: string; onlinePlayerNames?: string[]; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; localHandoffEnabled: boolean; isRoomHost: boolean; onlineVoteState: { votes: number[]; passed: boolean }; sharedBotSearches: BotSearchUpdate[]; onBotSearchUpdate: (status: BotSearchUpdate | null) => void; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
   const rawG = state.G as AleState;
-  const G = onlinePlayerNames ? { ...rawG, players: rawG.players.map((player, i) => onlinePlayerNames[i] ? { ...player, name: onlinePlayerNames[i] } : player) } as AleState : rawG;
-  const ctx = state.ctx, currentPlayerIndex = Number(ctx.currentPlayer);
-  const handoffTurnKey = `${G.phase}:${G.round}:${ctx.turn ?? ''}:${currentPlayerIndex}:${G.setupStage ?? ''}`;
-  const [handoffPlayerIndex, setHandoffPlayerIndex] = useState<number | null>(() => localHandoffEnabled && G.phase !== 'finished' && !botSeats.includes(currentPlayerIndex) ? currentPlayerIndex : null);
+  const liveG = onlinePlayerNames ? { ...rawG, players: rawG.players.map((player, i) => onlinePlayerNames[i] ? { ...player, name: onlinePlayerNames[i] } : player) } as AleState : rawG;
+  const [replayFrames, setReplayFrames] = useState<ReplayFrame[]>(() => readReplayFrames(replayStorageKey));
+  const replayFramesRef = React.useRef(replayFrames);
+  const [selectedReplayId, setSelectedReplayId] = useState<string | null>(null);
+  const selectedReplayFrame = replayFrames.find(frame => frame.id === selectedReplayId) ?? null;
+  const isReplaying = !!selectedReplayFrame;
+  const G = selectedReplayFrame ? { ...liveG, ...selectedReplayFrame.state, log: liveG.log, undoSnapshot: null, stepUndoSnapshots: [], confirmationKind: null, shedChoices: [], privilegePrompts: [] } as AleState : liveG;
+  const ctx = selectedReplayFrame ? { ...state.ctx, currentPlayer: String(selectedReplayFrame.playerIndex), turn: selectedReplayFrame.turn ?? state.ctx.turn } : state.ctx;
+  const currentPlayerIndex = Number(ctx.currentPlayer);
+  const saveReplayFrame = (logStart: number, logEnd: number, playerIndex: number, turn?: number) => {
+    const snapshot = JSON.parse(JSON.stringify({
+      players: liveG.players, round: liveG.round, maxRounds: liveG.maxRounds, resources: liveG.resources, monks: liveG.monks,
+      scores: liveG.scores, barrels: liveG.barrels, phase: liveG.phase, setupStage: liveG.setupStage, pending: liveG.pending,
+      startPlayer: liveG.startPlayer, firstTurnAfterSetup: liveG.firstTurnAfterSetup, startChoice: liveG.startChoice,
+      expansionEnabled: liveG.expansionEnabled, expansion: liveG.expansion, playerOrder: liveG.playerOrder,
+      firstRoundOrder: liveG.firstRoundOrder, logCycle: liveG.logCycle,
+    })) as ReplayViewState;
+    const frame: ReplayFrame = { id: `${state._stateID}-${logEnd}-${playerIndex}`, logStart, logEnd, playerIndex, turn, state: snapshot };
+    const next = persistReplayFrames(replayStorageKey, [...replayFramesRef.current.filter(item => item.id !== frame.id), frame].slice(-replayFrameLimit));
+    replayFramesRef.current = next;
+    setReplayFrames(next);
+  };
+  const replayTrackerRef = React.useRef<{ stateID: number; phase: AleState['phase']; confirmationKind: AleState['confirmationKind']; undoSnapshot: string | null; actionLogStart: number } | null>(null);
+  useEffect(() => {
+    const previous = replayTrackerRef.current;
+    const snapshotLogCount = (snapshot: string | null) => {
+      if (!snapshot) return null;
+      try { return (JSON.parse(snapshot) as AleState).log.length; } catch { return null; }
+    };
+    if (!previous) {
+      replayTrackerRef.current = { stateID: Number(state._stateID), phase: liveG.phase, confirmationKind: liveG.confirmationKind, undoSnapshot: liveG.undoSnapshot, actionLogStart: snapshotLogCount(liveG.undoSnapshot) ?? liveG.log.length };
+      return;
+    }
+    if (previous.stateID === Number(state._stateID)) return;
+    const actionLogStart = liveG.undoSnapshot ? snapshotLogCount(liveG.undoSnapshot) ?? previous.actionLogStart : previous.actionLogStart;
+    if (previous.phase === 'play' && previous.confirmationKind && !liveG.confirmationKind && (liveG.phase === 'play' || liveG.phase === 'finished')) {
+      saveReplayFrame(actionLogStart, liveG.log.length, Number(state.ctx.currentPlayer), state.ctx.turn);
+    }
+    replayTrackerRef.current = {
+      stateID: Number(state._stateID), phase: liveG.phase, confirmationKind: liveG.confirmationKind,
+      undoSnapshot: liveG.undoSnapshot, actionLogStart: snapshotLogCount(liveG.undoSnapshot) ?? liveG.log.length,
+    };
+  }, [state._stateID, liveG.phase, liveG.confirmationKind, liveG.undoSnapshot, liveG.log.length, state.ctx.currentPlayer, state.ctx.turn]);
+  const liveCurrentPlayerIndex = Number(state.ctx.currentPlayer);
+  const handoffTurnKey = `${liveG.phase}:${liveG.round}:${state.ctx.turn ?? ''}:${liveCurrentPlayerIndex}:${liveG.setupStage ?? ''}`;
+  const [handoffPlayerIndex, setHandoffPlayerIndex] = useState<number | null>(() => localHandoffEnabled && liveG.phase !== 'finished' && !botSeats.includes(liveCurrentPlayerIndex) ? liveCurrentPlayerIndex : null);
   const lastHandoffTurnKeyRef = React.useRef(handoffTurnKey);
-  const lastTurnPlayerRef = React.useRef(currentPlayerIndex);
+  const lastTurnPlayerRef = React.useRef(liveCurrentPlayerIndex);
   useEffect(() => {
     const changedTurn = lastHandoffTurnKeyRef.current !== handoffTurnKey;
     lastHandoffTurnKeyRef.current = handoffTurnKey;
-    if (!localHandoffEnabled || G.phase === 'finished') {
-      lastTurnPlayerRef.current = currentPlayerIndex;
+    if (!localHandoffEnabled || liveG.phase === 'finished') {
+      lastTurnPlayerRef.current = liveCurrentPlayerIndex;
       setHandoffPlayerIndex(null);
       return;
     }
     if (!changedTurn) return;
     const previousPlayer = lastTurnPlayerRef.current;
-    lastTurnPlayerRef.current = currentPlayerIndex;
-    if (botSeats.includes(currentPlayerIndex)) {
+    lastTurnPlayerRef.current = liveCurrentPlayerIndex;
+    if (botSeats.includes(liveCurrentPlayerIndex)) {
       setHandoffPlayerIndex(null);
       return;
     }
-    if (previousPlayer !== currentPlayerIndex) setHandoffPlayerIndex(currentPlayerIndex);
-  }, [handoffTurnKey, localHandoffEnabled, G.phase, botSeats, currentPlayerIndex]);
+    if (previousPlayer !== liveCurrentPlayerIndex) setHandoffPlayerIndex(liveCurrentPlayerIndex);
+  }, [handoffTurnKey, localHandoffEnabled, liveG.phase, botSeats, liveCurrentPlayerIndex]);
   const localSeat = Number((client as any).playerID);
   const ownPlayerIndex = isLocal ? currentPlayerIndex : Number.isInteger(ownPlayerSeat) ? ownPlayerSeat! : Number.isInteger(localSeat) ? localSeat : currentPlayerIndex;
   const currentPlayer = G.players[currentPlayerIndex] ?? G.players[0];
   const activeMarkerMoved = (() => {
-    if (!G.undoSnapshot) return false;
+    if (isReplaying || !G.undoSnapshot) return false;
     try {
       const origin = (JSON.parse(G.undoSnapshot) as AleState).players[currentPlayerIndex];
       return !!origin && (origin.position !== currentPlayer.position || origin.startSlot !== currentPlayer.startSlot);
@@ -608,11 +668,11 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  const ownsCurrentTurn = isLocal || Number((client as any).playerID) === currentPlayerIndex;
+  const ownsCurrentTurn = isLocal || Number((client as any).playerID) === liveCurrentPlayerIndex;
   useEffect(() => {
     const ownID = Number((client as any).playerID);
-    if (!isLocal && playerName?.trim() && ownID === currentPlayerIndex && rawG.players[ownID]?.name !== playerName.trim()) moves.setPlayerName?.(playerName.trim());
-  }, [state._stateID, client, playerName, isLocal, currentPlayerIndex]);
+    if (!isReplaying && !isLocal && playerName?.trim() && ownID === liveCurrentPlayerIndex && rawG.players[ownID]?.name !== playerName.trim()) moves.setPlayerName?.(playerName.trim());
+  }, [state._stateID, client, playerName, isLocal, liveCurrentPlayerIndex, isReplaying]);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
   const [selectedExpansionStoreId, setSelectedExpansionStoreId] = useState<number | null>(null);
   const previousUnplacedExpansionStores = React.useRef<number[] | null>(null);
@@ -728,9 +788,10 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     }
   }, []);
   useEffect(() => {
-    if (botSeats.includes(currentPlayerIndex)) setViewingPlayerIndex(currentPlayerIndex);
+    if (isReplaying) setViewingPlayerIndex(currentPlayerIndex);
+    else if (botSeats.includes(currentPlayerIndex)) setViewingPlayerIndex(currentPlayerIndex);
     else if (isLocal || ownPlayerIndex === currentPlayerIndex) setViewingPlayerIndex(ownPlayerIndex);
-  }, [currentPlayerIndex, ownPlayerIndex, isLocal, botSeats]);
+  }, [currentPlayerIndex, ownPlayerIndex, isLocal, botSeats, isReplaying]);
   useEffect(() => {
     const logList = document.querySelector<HTMLElement>('.far-right-rail .log-list');
     if (logList) logList.scrollTop = logList.scrollHeight;
@@ -746,7 +807,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const isBotTurn = botSeats.includes(activeSeat) && G.phase !== 'finished';
   const sharedActiveBotSearch = sharedBotSearches.find(search => search.playerID === activeSeat && Date.now() - search.updatedAt < 12000);
   const activeBotSearch = botSearchStatus?.playerID === activeSeat ? botSearchStatus : sharedActiveBotSearch?.thinking ? sharedActiveBotSearch : undefined;
-  const canControlTurn = ownsCurrentTurn && !isBotTurn && !onlineVoteState.passed;
+  const canControlTurn = !isReplaying && ownsCurrentTurn && !isBotTurn && !onlineVoteState.passed;
   const isExpansionStoreSetup = G.phase === 'setup' && G.setupStage === 'expansion-stores' && !!G.expansion;
   const activeExpansionBoard = G.expansion?.players[activeSeat];
   const canConfigureExpansionStores = isExpansionStoreSetup && isViewingCurrent && canControlTurn && !G.confirmationKind && !G.expansion?.storeSetupReady?.[activeSeat];
@@ -877,12 +938,12 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     executeGameAction(kind);
   };
   useEffect(() => {
-    if (pieceFlights.length || !deferredGameActionRef.current) return;
+    if (isReplaying || pieceFlights.length || !deferredGameActionRef.current) return;
     const kind = deferredGameActionRef.current;
     deferredGameActionRef.current = null;
     setDeferredGameAction(null);
     executeGameAction(kind);
-  }, [pieceFlights.length, deferredGameAction]);
+  }, [pieceFlights.length, deferredGameAction, isReplaying]);
   const startPieceFlight = (kind: PieceFlight['kind'], sourceElement: HTMLElement | null, target: { left: number; top: number; width: number; height: number } | null, data: Partial<PieceFlight> = {}) => {
     if (!sourceElement || !target) return 0;
     const source = kind === 'tile' ? sourceElement.querySelector<HTMLElement>('.tile-image') || sourceElement : sourceElement;
@@ -958,11 +1019,14 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     return startPieceFlight('meeple', source, targetRect, { playerIndex, playerName: player.name, playerColor: player.color, targetTrackIndex, targetStartSlot, pathPoints });
   };
   const markerSnapshotRef = React.useRef<any[] | null>(null);
+  const markerReplayStateRef = React.useRef(isReplaying);
   useLayoutEffect(() => {
+    const replayTransition = markerReplayStateRef.current !== isReplaying;
+    markerReplayStateRef.current = isReplaying;
     const current = G.players.map(player => ({ tracks: { ...player.tracks }, brewer: player.brewer, position: player.position, startSlot: player.startSlot }));
     const previous = markerSnapshotRef.current;
     markerSnapshotRef.current = current;
-    if (!previous) return;
+    if (!previous || isReplaying || replayTransition) return;
     for (let playerIndex = 0; playerIndex < current.length; playerIndex++) {
       if (playerIndex !== viewingPlayerIndex) continue;
       const old = previous[playerIndex], now = current[playerIndex];
@@ -1006,9 +1070,12 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
         if (motion) startPieceFlightFromRects('brewer-marker', motion.from, motion.to, { playerIndex, playerColor: G.players[playerIndex].color, pathPoints: motion.pathPoints });
       }
     }
-  }, [state._stateID, viewingPlayerIndex]);
+  }, [state._stateID, viewingPlayerIndex, selectedReplayId, isReplaying]);
   const expansionSnapshotRef = React.useRef<any>(null);
+  const expansionReplayStateRef = React.useRef(isReplaying);
   useLayoutEffect(() => {
+    const replayTransition = expansionReplayStateRef.current !== isReplaying;
+    expansionReplayStateRef.current = isReplaying;
     const expansion = G.expansion;
     const current = expansion ? {
       dieSpace: expansion.cartDieSpace,
@@ -1024,7 +1091,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
     } : null;
     const previous = expansionSnapshotRef.current;
     expansionSnapshotRef.current = current;
-    if (!previous || !current || !G.expansionEnabled) return;
+    if (!previous || !current || !G.expansionEnabled || isReplaying || replayTransition) return;
 
     const centeredRect = (rect: DOMRect, width: number, height = width) => ({
       left: rect.left + (rect.width - width) / 2,
@@ -1151,7 +1218,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
         if (from && to) for (let barrel = 0; barrel < delivered; barrel++) startPieceFlightFromRects('expansion-cargo', from, to, { cargoKind: 'barrel', playerIndex, targetRouteIndex: 9 + breweryIndex, delayMs: barrel * 90 });
       });
     }
-  }, [state._stateID, viewingPlayerIndex]);
+  }, [state._stateID, viewingPlayerIndex, selectedReplayId, isReplaying]);
   const startCoinFlights = (origins: { element: HTMLElement | null; amount: number }[], target: HTMLElement | null) => {
     if (!target) return 0;
     const targetRect = target.getBoundingClientRect();
@@ -1498,7 +1565,10 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const actionOrder = roundOrder;
   const ownOrderPosition = actionOrder.indexOf(ownPlayerIndex);
   const rosterOrder = ownOrderPosition < 0 ? actionOrder : [...actionOrder.slice(ownOrderPosition), ...actionOrder.slice(0, ownOrderPosition)];
-  return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''}`} onDragStartCapture={event => event.preventDefault()}>
+  const visibleReplayLogs = liveG.log.slice(0, 80).reverse();
+  const visibleReplayLogStart = liveG.log.length - visibleReplayLogs.length;
+  const replayIndex = selectedReplayFrame ? replayFrames.findIndex(frame => frame.id === selectedReplayFrame.id) : -1;
+  return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''} ${isReplaying ? 'is-replaying' : ''}`} onDragStartCapture={event => event.preventDefault()}>
     {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />}
     {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />)}
     {movementTrails.filter(trail => trail.started).map(trail => {
@@ -1517,10 +1587,11 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
       </React.Fragment>;
     })}
     <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div>{G.expansionEnabled && <span className="expansion-room-badge">含扩展包</span>}<div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div>{G.phase === 'finished' && <button className="icon-btn final-score-reopen" onClick={() => setShowFinalScore(true)}>最终计分</button>}<button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{G.phase !== 'finished' && !isLocal && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number((client as any).playerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{G.phase !== 'finished' && isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
+    {isReplaying && selectedReplayFrame && <div className="replay-toolbar" role="status"><b>回放 · 第 {selectedReplayFrame.state.round} 轮 · {selectedReplayFrame.state.players[selectedReplayFrame.playerIndex]?.name ?? '玩家'}行动</b><div><button type="button" disabled={replayIndex <= 0} onClick={() => setSelectedReplayId(replayFrames[replayIndex - 1]?.id ?? null)}>上一步</button><span>{replayIndex + 1} / {replayFrames.length}</span><button type="button" disabled={replayIndex < 0 || replayIndex >= replayFrames.length - 1} onClick={() => setSelectedReplayId(replayFrames[replayIndex + 1]?.id ?? null)}>下一步</button><button type="button" className="replay-close" onClick={() => setSelectedReplayId(null)}>返回实时对局</button></div></div>}
     {G.phase !== 'finished' && !isLocal && roomCode && onlineVoteState.votes.length > 0 && <div className="abandon-vote-progress"><b>放弃游戏投票 · {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</b><span>{humanPlayerSeats.map(seat => `${G.players[seat].name}：${onlineVoteState.votes.includes(seat) ? '已投票' : '未投票'}`).join('　')}</span></div>}
     {G.phase !== 'finished' && !isLocal && onlineVoteState.passed && <div className="abandon-vote-banner"><b>所有真人玩家已同意，正在删除本局和记录。</b>{isRoomHost && <button className="btn btn-gold" onClick={onLeaveAbandoned}>重试删除</button>}</div>}
     {G.phase === 'finished' && showFinalScore && <GameOverScoreModal game={G} gameover={gameover} winnerNames={winnerIds.map(id => G.players[Number(id)]?.name).filter((name): name is string => !!name)} onExit={onExit} onClose={() => setShowFinalScore(false)} />}
-    <div className={`game-layout ${isBotTurn ? 'bot-thinking' : ''}`}>
+    <div className={`game-layout ${isBotTurn ? 'bot-thinking' : ''} ${isReplaying ? 'is-replaying' : ''}`}>
       <section className="center-play"><div className="board-heading"><div><h2>主游戏版图</h2></div>{isBotTurn ? <span className="bot-thinking-pill"><i className="bot-thinking-dot" />{G.players[activeSeat]?.name} 正在思考 · 搜索 {activeBotSearch?.iterations ?? 0} 次</span> : <span className="board-tip"></span>}</div>
         <div className="main-board-wrap"><img src="/Images/main_board_clear.jpg" alt="天堂与美酒主版图" className="main-board-art" /><div className="track-overlay">
           {G.track.map((space, i) => {
@@ -1598,13 +1669,13 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
             </div>
           </div>
         </div>;
-      })}</div><div className="rail-heading log-heading"><span>行动日志</span><button type="button" className="log-export-button" hidden onClick={downloadGameDebug} title="下载当前对局状态、日志及机器人搜索状态">导出对局</button></div><div className="log-list">{G.log.slice(0, 80).reverse().map((line, i) => <p key={i} className={line.startsWith('[[TURN:') ? 'log-turn-divider' : ''}>{renderLog(line, G.players)}</p>)}</div></aside>
+      })}</div><div className="rail-heading log-heading"><span>行动日志 · 点击回放</span><button type="button" className="log-export-button" hidden onClick={downloadGameDebug} title="下载当前对局状态、日志及机器人搜索状态">导出对局</button></div><div className="log-list">{visibleReplayLogs.map((line, i) => { const logIndex = visibleReplayLogStart + i; const frame = replayFrames.find(item => logIndex >= item.logStart && logIndex < item.logEnd); const turnDivider = line.startsWith('[[TURN:'); return <button type="button" key={`${logIndex}-${line}`} className={`log-replay-entry ${turnDivider ? 'log-turn-divider' : ''} ${frame ? 'is-replayable' : ''} ${frame?.id === selectedReplayId ? 'is-selected' : ''}`} disabled={!frame} title={frame ? '点击查看此行动后的棋盘' : '此条日志尚无本机回放记录'} onClick={() => { if (!frame) return; setPieceFlights([]); setMovementTrails([]); setSelectedReplayId(frame.id); }}>{renderLog(line, liveG.players)}</button>; })}</div></aside>
     </div>
     {showUnstoredCargoPrompt && action?.baseDone && !action.cargoDone && hasStorableCargoRemaining && <div className="modal-backdrop" onClick={() => setShowUnstoredCargoPrompt(false)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="unstored-cargo-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowUnstoredCargoPrompt(false)}>×</button><span className="eyebrow">CARGO STORAGE</span><h2 id="unstored-cargo-title">还有货物可以拿取</h2><p>当前行动格还剩 {remainingCargoReminder}，并且你还有空存储格可用。要返回继续放置吗？</p><div className="confirm-actions"><button className="btn btn-outline" onClick={() => setShowUnstoredCargoPrompt(false)}>返回拿取</button><button className="btn btn-gold" onClick={() => { setShowUnstoredCargoPrompt(false); moves.finishExpansionCargo(); }}>仍然结束</button></div></div></div>}
     {showRules && <div className="modal-backdrop" onClick={() => setShowRules(false)}><div className="rules-modal" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowRules(false)}>×</button><span className="eyebrow">HOW TO PLAY</span><h2>修道院经营要点</h2><p>每回合沿公共轨道向前移动，并执行落点行动。购买资源与僧侣板块后，将它们放入花园的向阳或阴凉空格。</p><ul><li>阴凉板块按面值购买；资源激活时获得钱币。</li><li>向阳板块花费双倍；资源激活时推进对应生产轨道。</li><li>计分行动会激活对应产值、资源或僧侣，帮助提升最终分数。</li><li>返回起点领取奖励，本轮休息；所有人都返回后开始新一轮。</li></ul><p className="fine-print">线上联机需要先启动项目内的 boardgame.io 服务端。各回合在玩家设备上依次进行。</p></div></div>}
     {showAbandonConfirm && <div className="modal-backdrop" onClick={() => setShowAbandonConfirm(false)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="abandon-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowAbandonConfirm(false)}>×</button><span className="eyebrow">ABANDON GAME</span><h2 id="abandon-title">放弃当前对局？</h2><p>放弃后会删除本地存档，无法继续这场对局。</p><div className="confirm-actions"><button className="btn btn-outline" onClick={() => setShowAbandonConfirm(false)}>继续游戏</button><button className="btn btn-danger" onClick={onAbandon}>确认放弃</button></div></div></div>}
     {toast && <div className="toast" onClick={() => setToast('')}>{toast} <span>×</span></div>}
-    {handoffPlayerIndex !== null && <div className="local-handoff-screen" role="dialog" aria-modal="true" aria-labelledby="local-handoff-title"><div className="local-handoff-card"><span className="eyebrow">LOCAL GAME · PASS THE DEVICE</span><div className="local-handoff-icon" aria-hidden="true">✦</div><h2 id="local-handoff-title">请将设备交给</h2><strong>{G.players[handoffPlayerIndex]?.name ?? currentPlayer.name}</strong><p>准备好后，点击下方按钮开始本回合。</p><button className="btn btn-gold" onClick={() => setHandoffPlayerIndex(null)}>我已接手，开始游戏</button></div></div>}
+    {handoffPlayerIndex !== null && !isReplaying && <div className="local-handoff-screen" role="dialog" aria-modal="true" aria-labelledby="local-handoff-title"><div className="local-handoff-card"><span className="eyebrow">LOCAL GAME · PASS THE DEVICE</span><div className="local-handoff-icon" aria-hidden="true">✦</div><h2 id="local-handoff-title">请将设备交给</h2><strong>{liveG.players[handoffPlayerIndex]?.name ?? currentPlayer.name}</strong><p>准备好后，点击下方按钮开始本回合。</p><button className="btn btn-gold" onClick={() => setHandoffPlayerIndex(null)}>我已接手，开始游戏</button></div></div>}
   </main>;
 }
 

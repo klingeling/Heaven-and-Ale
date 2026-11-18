@@ -1488,9 +1488,7 @@ function GameView({ client, state, roomInfo, roomCode, botSeats, remoteBotClient
   const firstOrder = isSeatOrder(G.firstRoundOrder) ? G.firstRoundOrder : [...playerOrder.slice(playerOrder.indexOf(G.startPlayer)), ...playerOrder.slice(0, playerOrder.indexOf(G.startPlayer))];
   const roundOrderStart = playerOrder.indexOf(G.startPlayer);
   const roundOrder = [...playerOrder.slice(roundOrderStart), ...playerOrder.slice(0, roundOrderStart)];
-  const actionOrder = G.phase === 'setup' && G.setupStage === 'starts'
-    ? Array.from({ length: playerCount }, (_, offset) => playerOrder[(roundOrderStart - 1 - offset + playerCount * 2) % playerCount])
-    : roundOrder;
+  const actionOrder = roundOrder;
   const ownOrderPosition = actionOrder.indexOf(ownPlayerIndex);
   const rosterOrder = ownOrderPosition < 0 ? actionOrder : [...actionOrder.slice(ownOrderPosition), ...actionOrder.slice(0, ownOrderPosition)];
   return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''}`} onDragStartCapture={event => event.preventDefault()}>

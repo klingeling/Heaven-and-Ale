@@ -709,6 +709,14 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
       sessionStorage.setItem(trailStorageKey, JSON.stringify({ width: window.innerWidth, height: window.innerHeight, trails: movementTrails }));
     } catch { /* session storage is only a visual convenience */ }
   }, [movementTrails, G.confirmationKind, trailStorageKey]);
+  const switchReplayFrame = (id: string | null) => {
+    setPieceFlights([]);
+    setMovementTrails([]);
+    const frame = id ? replayFrames.find(item => item.id === id) : null;
+    if (frame) setViewingPlayerIndex(frame.playerIndex);
+    else setViewingPlayerIndex(liveCurrentPlayerIndex);
+    setSelectedReplayId(frame?.id ?? null);
+  };
   const reverseCartMotionRef = React.useRef(false);
   const undoStepTargetStateIdRef = React.useRef<number | null>(null);
   const previousConfirmationKindRef = React.useRef(G.confirmationKind);
@@ -1018,15 +1026,102 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
     }
     return startPieceFlight('meeple', source, targetRect, { playerIndex, playerName: player.name, playerColor: player.color, targetTrackIndex, targetStartSlot, pathPoints });
   };
+  useLayoutEffect(() => {
+    const nextFrame = selectedReplayFrame;
+    if (!nextFrame) return;
+    const frameIndex = replayFrames.findIndex(frame => frame.id === nextFrame.id);
+    const previousFrame = frameIndex > 0 ? replayFrames[frameIndex - 1] : null;
+    if (!previousFrame) return;
+
+    const oldState = previousFrame.state, nextState = nextFrame.state;
+    const centered = (rect: DOMRect, width: number, height = width) => ({
+      left: rect.left + (rect.width - width) / 2,
+      top: rect.top + (rect.height - height) / 2,
+      width, height,
+    });
+    const trackCellRect = (index: number, width = 28, height = 42) => {
+      const rect = document.querySelector<HTMLElement>(`[data-track-index="${index}"]`)?.getBoundingClientRect();
+      return rect && rect.width > 1 ? centered(rect, Math.min(width, rect.width * .55), Math.min(height, rect.height * .82)) : null;
+    };
+    const startSlotRect = (slotIndex: number, width = 28, height = 42) => {
+      const rect = document.querySelector<HTMLElement>(`.start-slot.slot-${slotIndex}`)?.getBoundingClientRect();
+      return rect && rect.width > 1 ? centered(rect, Math.min(width, rect.width * .32), Math.min(height, rect.height * .74)) : null;
+    };
+    const point = (rect: { left: number; top: number; width: number; height: number }): MotionPoint => ({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    const movingPlayer = nextFrame.playerIndex;
+    const oldPlayer = oldState.players[movingPlayer], nextPlayer = nextState.players[movingPlayer];
+    if (oldPlayer && nextPlayer && (oldPlayer.position !== nextPlayer.position || oldPlayer.startSlot !== nextPlayer.startSlot)) {
+      const from = oldPlayer.position >= 0 ? trackCellRect(oldPlayer.position) : oldPlayer.startSlot !== null ? startSlotRect(oldPlayer.startSlot) : null;
+      const to = nextPlayer.position >= 0 ? trackCellRect(nextPlayer.position) : nextPlayer.startSlot !== null ? startSlotRect(nextPlayer.startSlot) : null;
+      if (from && to) {
+        const pathPoints: MotionPoint[] = [point(from)];
+        if (oldPlayer.position < 0 && nextPlayer.position >= 0) {
+          for (let index = 0; index <= nextPlayer.position; index++) { const rect = trackCellRect(index); if (rect) pathPoints.push(point(rect)); }
+        } else if (oldPlayer.position >= 0 && nextPlayer.position >= 0) {
+          const step = oldPlayer.position <= nextPlayer.position ? 1 : -1;
+          for (let index = oldPlayer.position + step; step > 0 ? index <= nextPlayer.position : index >= nextPlayer.position; index += step) { const rect = trackCellRect(index); if (rect) pathPoints.push(point(rect)); }
+        }
+        if (pathPoints.length === 1 || nextPlayer.position < 0) pathPoints.push(point(to));
+        startPieceFlightFromRects('meeple', from, to, { playerIndex: movingPlayer, playerName: nextPlayer.name, playerColor: nextPlayer.color, targetTrackIndex: nextPlayer.position >= 0 ? nextPlayer.position : undefined, targetStartSlot: nextPlayer.position < 0 && nextPlayer.startSlot !== null ? nextPlayer.startSlot : undefined, pathPoints });
+      }
+    }
+
+    const gardenTargetRect = (playerIndex: number, cellIndex: number, width = 42, height = 42) => {
+      const rect = document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${playerIndex}"] [data-garden-index="${cellIndex}"]`)?.getBoundingClientRect();
+      return rect && rect.width > 1 ? centered(rect, Math.min(width, rect.width * .82), Math.min(height, rect.height * .82)) : null;
+    };
+    for (let cellIndex = 0; cellIndex < (nextPlayer?.board.length ?? 0); cellIndex++) {
+      const tile = nextPlayer.board[cellIndex]?.tile as Tile | undefined;
+      const oldTile = oldPlayer?.board[cellIndex]?.tile as Tile | undefined;
+      if (!tile || oldTile?.id === tile.id) continue;
+      let sourceIndex = -1;
+      const oldSupply = tile.kind === 'resource' ? oldState.resources : oldState.monks;
+      for (let supplyIndex = 0; supplyIndex < oldSupply.length; supplyIndex++) if (oldSupply[supplyIndex]?.some(item => item.id === tile.id)) { sourceIndex = supplyIndex; break; }
+      const sourceSpace = sourceIndex >= 0 ? oldStateTrackSpace(tile.kind, sourceIndex) : -1;
+      const fromRect = sourceSpace >= 0 ? trackCellRect(sourceSpace, 34, 34) : null;
+      const toRect = gardenTargetRect(movingPlayer, cellIndex);
+      if (fromRect && toRect) startPieceFlightFromRects('tile', fromRect, toRect, { tile, playerIndex: movingPlayer, targetIndex: cellIndex });
+    }
+
+    const emptiedScoreSources = oldState.scores.map((count, index) => ({ index, remaining: Math.max(0, count - (nextState.scores[index] ?? count)) }));
+    const newlyPlacedDiscs: { scoreIndex: number; playerIndex: number }[] = [];
+    nextState.players.forEach((player, playerIndex) => {
+      const old = oldState.players[playerIndex];
+      if (!old) return;
+      if (old.scores.x === undefined && player.scores.x !== undefined) newlyPlacedDiscs.push({ scoreIndex: 0, playerIndex });
+      player.scores.resource.forEach((resource, index) => { if (resource && !old.scores.resource[index]) newlyPlacedDiscs.push({ scoreIndex: 1 + index, playerIndex }); });
+      player.scores.monk.forEach((used, index) => { if (used && !old.scores.monk[index]) newlyPlacedDiscs.push({ scoreIndex: 6 + index, playerIndex }); });
+    });
+    newlyPlacedDiscs.forEach(({ scoreIndex, playerIndex }) => {
+      const sourceIndex = emptiedScoreSources.find(source => source.remaining > 0)?.index;
+      if (sourceIndex === undefined) return;
+      const sourceElement = document.querySelector<HTMLElement>(`[data-score-source-index="${sourceIndex}"]`);
+      const sourceRect = sourceElement?.getBoundingClientRect();
+      const board = document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${playerIndex}"]`), boardRect = board?.getBoundingClientRect();
+      const position = scoringDiscPositions[scoreIndex];
+      if (!sourceRect || !boardRect || !position) return;
+      const size = Math.max(18, boardRect.width * .055);
+      const from = centered(sourceRect, Math.min(size, sourceRect.width * .5));
+      const to = { left: boardRect.left + boardRect.width * position.left / 100 - size / 2, top: boardRect.top + boardRect.height * position.top / 100 - size / 2, width: size, height: size };
+      startPieceFlightFromRects('disc', from, to, { scoreIndex, playerIndex });
+      emptiedScoreSources.find(source => source.index === sourceIndex)!.remaining -= 1;
+    });
+
+    function oldStateTrackSpace(kind: Tile['kind'], supplyIndex: number) {
+      return state.G.track.findIndex((space: any) => space.type === kind && space.sourceIndex === supplyIndex);
+    }
+  }, [selectedReplayId]);
   const markerSnapshotRef = React.useRef<any[] | null>(null);
   const markerReplayStateRef = React.useRef(isReplaying);
   useLayoutEffect(() => {
     const replayTransition = markerReplayStateRef.current !== isReplaying;
     markerReplayStateRef.current = isReplaying;
     const current = G.players.map(player => ({ tracks: { ...player.tracks }, brewer: player.brewer, position: player.position, startSlot: player.startSlot }));
-    const previous = markerSnapshotRef.current;
+    const selectedIndex = isReplaying ? replayFrames.findIndex(frame => frame.id === selectedReplayId) : -1;
+    const replayPrevious = selectedIndex > 0 ? replayFrames[selectedIndex - 1]?.state.players.map(player => ({ tracks: { ...player.tracks }, brewer: player.brewer, position: player.position, startSlot: player.startSlot })) : null;
+    const previous = isReplaying ? replayPrevious : markerSnapshotRef.current;
     markerSnapshotRef.current = current;
-    if (!previous || isReplaying || replayTransition) return;
+    if (!previous || (replayTransition && !isReplaying)) return;
     for (let playerIndex = 0; playerIndex < current.length; playerIndex++) {
       if (playerIndex !== viewingPlayerIndex) continue;
       const old = previous[playerIndex], now = current[playerIndex];
@@ -1089,9 +1184,24 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
         breweryDeliveries: [...board.breweryDeliveries], deliveredBarrels: board.deliveredBarrels,
       })),
     } : null;
-    const previous = expansionSnapshotRef.current;
+    const selectedIndex = isReplaying ? replayFrames.findIndex(frame => frame.id === selectedReplayId) : -1;
+    const replayPreviousState = selectedIndex > 0 ? replayFrames[selectedIndex - 1]?.state : null;
+    const replayPreviousExpansion = replayPreviousState?.expansion;
+    const replayPrevious = replayPreviousExpansion ? {
+      dieSpace: replayPreviousExpansion.cartDieSpace,
+      dieValue: replayPreviousExpansion.cartDieValue,
+      cargoByTrackSpace: replayPreviousExpansion.cargoByTrackSpace.map((pile: ExpansionCargo[]) => [...pile]),
+      pending: replayPreviousState?.pending ? { space: replayPreviousState.pending.space, cargoTaken: replayPreviousState.pending.cargoTaken ?? 0 } : null,
+      players: replayPreviousExpansion.players.map((board: ExpansionPlayerBoard, playerIndex: number) => ({
+        coins: replayPreviousState?.players[playerIndex]?.coins ?? 0,
+        storage: [...board.storage], temporaryStorage: board.temporaryStorage,
+        cartPosition: board.cartPosition, cartBarrels: board.cartBarrels,
+        breweryDeliveries: [...board.breweryDeliveries], deliveredBarrels: board.deliveredBarrels,
+      })),
+    } : null;
+    const previous = isReplaying ? replayPrevious : expansionSnapshotRef.current;
     expansionSnapshotRef.current = current;
-    if (!previous || !current || !G.expansionEnabled || isReplaying || replayTransition) return;
+    if (!previous || !current || !G.expansionEnabled || (replayTransition && !isReplaying)) return;
 
     const centeredRect = (rect: DOMRect, width: number, height = width) => ({
       left: rect.left + (rect.width - width) / 2,
@@ -1587,7 +1697,7 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
       </React.Fragment>;
     })}
     <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 房间 ${roomCode}`}</small></div>{G.expansionEnabled && <span className="expansion-room-badge">含扩展包</span>}<div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div>{G.phase === 'finished' && <button className="icon-btn final-score-reopen" onClick={() => setShowFinalScore(true)}>最终计分</button>}<button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{G.phase !== 'finished' && !isLocal && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number((client as any).playerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{G.phase !== 'finished' && isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
-    {isReplaying && selectedReplayFrame && <div className="replay-toolbar" role="status"><b>回放 · 第 {selectedReplayFrame.state.round} 轮 · {selectedReplayFrame.state.players[selectedReplayFrame.playerIndex]?.name ?? '玩家'}行动</b><div><button type="button" disabled={replayIndex <= 0} onClick={() => setSelectedReplayId(replayFrames[replayIndex - 1]?.id ?? null)}>上一步</button><span>{replayIndex + 1} / {replayFrames.length}</span><button type="button" disabled={replayIndex < 0 || replayIndex >= replayFrames.length - 1} onClick={() => setSelectedReplayId(replayFrames[replayIndex + 1]?.id ?? null)}>下一步</button><button type="button" className="replay-close" onClick={() => setSelectedReplayId(null)}>返回实时对局</button></div></div>}
+    {isReplaying && selectedReplayFrame && <div className="replay-toolbar" role="status"><b>回放 · 第 {selectedReplayFrame.state.round} 轮 · {selectedReplayFrame.state.players[selectedReplayFrame.playerIndex]?.name ?? '玩家'}行动</b><div><button type="button" disabled={replayIndex <= 0} onClick={() => switchReplayFrame(replayFrames[replayIndex - 1]?.id ?? null)}>上一步</button><span>{replayIndex + 1} / {replayFrames.length}</span><button type="button" disabled={replayIndex < 0 || replayIndex >= replayFrames.length - 1} onClick={() => switchReplayFrame(replayFrames[replayIndex + 1]?.id ?? null)}>下一步</button><button type="button" className="replay-close" onClick={() => switchReplayFrame(null)}>返回实时对局</button></div></div>}
     {G.phase !== 'finished' && !isLocal && roomCode && onlineVoteState.votes.length > 0 && <div className="abandon-vote-progress"><b>放弃游戏投票 · {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</b><span>{humanPlayerSeats.map(seat => `${G.players[seat].name}：${onlineVoteState.votes.includes(seat) ? '已投票' : '未投票'}`).join('　')}</span></div>}
     {G.phase !== 'finished' && !isLocal && onlineVoteState.passed && <div className="abandon-vote-banner"><b>所有真人玩家已同意，正在删除本局和记录。</b>{isRoomHost && <button className="btn btn-gold" onClick={onLeaveAbandoned}>重试删除</button>}</div>}
     {G.phase === 'finished' && showFinalScore && <GameOverScoreModal game={G} gameover={gameover} winnerNames={winnerIds.map(id => G.players[Number(id)]?.name).filter((name): name is string => !!name)} onExit={onExit} onClose={() => setShowFinalScore(false)} />}
@@ -1669,7 +1779,7 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
             </div>
           </div>
         </div>;
-      })}</div><div className="rail-heading log-heading"><span>行动日志 · 点击回放</span><button type="button" className="log-export-button" hidden onClick={downloadGameDebug} title="下载当前对局状态、日志及机器人搜索状态">导出对局</button></div><div className="log-list">{visibleReplayLogs.map((line, i) => { const logIndex = visibleReplayLogStart + i; const frame = replayFrames.find(item => logIndex >= item.logStart && logIndex < item.logEnd); const turnDivider = line.startsWith('[[TURN:'); return <button type="button" key={`${logIndex}-${line}`} className={`log-replay-entry ${turnDivider ? 'log-turn-divider' : ''} ${frame ? 'is-replayable' : ''} ${frame?.id === selectedReplayId ? 'is-selected' : ''}`} disabled={!frame} title={frame ? '点击查看此行动后的棋盘' : '此条日志尚无本机回放记录'} onClick={() => { if (!frame) return; setPieceFlights([]); setMovementTrails([]); setSelectedReplayId(frame.id); }}>{renderLog(line, liveG.players)}</button>; })}</div></aside>
+      })}</div><div className="rail-heading log-heading"><span>行动日志</span><button type="button" className="log-export-button" hidden onClick={downloadGameDebug} title="下载当前对局状态、日志及机器人搜索状态">导出对局</button></div><div className="log-list">{visibleReplayLogs.map((line, i) => { const logIndex = visibleReplayLogStart + i; const frame = replayFrames.find(item => logIndex >= item.logStart && logIndex < item.logEnd); const turnDivider = line.startsWith('[[TURN:'); if (turnDivider) return <p key={`${logIndex}-${line}`} className="log-turn-divider">{renderLog(line, liveG.players)}</p>; return <p key={`${logIndex}-${line}`} className={`log-replay-entry ${frame ? 'is-replayable' : ''} ${frame?.id === selectedReplayId ? 'is-selected' : ''}`} role={frame ? 'button' : undefined} tabIndex={frame ? 0 : undefined} title={frame ? '点击回放此行动' : '此条日志暂无本机回放记录'} onClick={() => frame && switchReplayFrame(frame.id)} onKeyDown={event => { if (frame && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); switchReplayFrame(frame.id); } }}>{renderLog(line, liveG.players)}</p>; })}</div></aside>
     </div>
     {showUnstoredCargoPrompt && action?.baseDone && !action.cargoDone && hasStorableCargoRemaining && <div className="modal-backdrop" onClick={() => setShowUnstoredCargoPrompt(false)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="unstored-cargo-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowUnstoredCargoPrompt(false)}>×</button><span className="eyebrow">CARGO STORAGE</span><h2 id="unstored-cargo-title">还有货物可以拿取</h2><p>当前行动格还剩 {remainingCargoReminder}，并且你还有空存储格可用。要返回继续放置吗？</p><div className="confirm-actions"><button className="btn btn-outline" onClick={() => setShowUnstoredCargoPrompt(false)}>返回拿取</button><button className="btn btn-gold" onClick={() => { setShowUnstoredCargoPrompt(false); moves.finishExpansionCargo(); }}>仍然结束</button></div></div></div>}
     {showRules && <div className="modal-backdrop" onClick={() => setShowRules(false)}><div className="rules-modal" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowRules(false)}>×</button><span className="eyebrow">HOW TO PLAY</span><h2>修道院经营要点</h2><p>每回合沿公共轨道向前移动，并执行落点行动。购买资源与僧侣板块后，将它们放入花园的向阳或阴凉空格。</p><ul><li>阴凉板块按面值购买；资源激活时获得钱币。</li><li>向阳板块花费双倍；资源激活时推进对应生产轨道。</li><li>计分行动会激活对应产值、资源或僧侣，帮助提升最终分数。</li><li>返回起点领取奖励，本轮休息；所有人都返回后开始新一轮。</li></ul><p className="fine-print">线上联机需要先启动项目内的 boardgame.io 服务端。各回合在玩家设备上依次进行。</p></div></div>}

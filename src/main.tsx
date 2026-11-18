@@ -1091,7 +1091,14 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
       for (let supplyIndex = 0; supplyIndex < oldSupply.length; supplyIndex++) if (oldSupply[supplyIndex]?.some(item => item.id === tile.id)) { sourceIndex = supplyIndex; break; }
       const sourceSpace = sourceIndex >= 0 ? oldStateTrackSpace(tile.kind, sourceIndex) : -1;
       const fromRect = sourceSpace >= 0 ? trackCellRect(sourceSpace, 34, 34) : null;
-      const toRect = gardenTargetRect(movingPlayer, cellIndex);
+      const targetCell = document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${movingPlayer}"] [data-garden-index="${cellIndex}"]`);
+      const targetCellRect = targetCell?.getBoundingClientRect();
+      const tileAspect = tile.kind === 'resource' ? .8660254 : 1;
+      const maxWidth = (targetCellRect?.width ?? 0) * .85, maxHeight = (targetCellRect?.height ?? 0) * .85;
+      const tileWidth = Math.min(maxWidth, maxHeight * tileAspect), tileHeight = tileWidth / tileAspect;
+      const toRect = targetCellRect && tileWidth > 1 && tileHeight > 1
+        ? { left: targetCellRect.left + (targetCellRect.width - tileWidth) / 2, top: targetCellRect.top + (targetCellRect.height - tileHeight) / 2, width: tileWidth, height: tileHeight }
+        : null;
       if (fromRect && toRect) startPieceFlightFromRects('tile', fromRect, toRect, { tile, playerIndex: movingPlayer, targetIndex: cellIndex });
     }
 

@@ -347,9 +347,11 @@
 .track-space .occupants .player-meeple:nth-child(4){width:16px;height:22px;margin-left:-8px}
 .track-space .occupants .player-meeple.is-active-player{z-index:2;transform:scale(1.14);animation:active-player-glow 1.8s ease-in-out infinite alternate}
 .start-player-figure.is-active-player{position:relative;z-index:3;animation:active-player-glow 1.8s ease-in-out infinite alternate}
+.player-meeple.is-active-player::before{content:"";position:absolute;inset:-5px;z-index:1;border-radius:9px;pointer-events:none;background:linear-gradient(90deg,#ffe37a 55%,transparent 55%) 0 0/8px 2px repeat-x,linear-gradient(90deg,#ffe37a 55%,transparent 55%) 0 100%/8px 2px repeat-x,linear-gradient(0deg,#ffe37a 55%,transparent 55%) 0 0/2px 8px repeat-y,linear-gradient(0deg,#ffe37a 55%,transparent 55%) 100% 0/2px 8px repeat-y;filter:drop-shadow(0 0 3px #ffe37a);animation:active-marker-dashes .65s linear infinite}
 .track-space .occupants .player-meeple:hover{transform:scale(1.3)}
 .track-space .occupants .player-meeple:hover::after,.start-player-figure:hover::after{opacity:1;visibility:visible;transform:translate(-50%,0) scale(1)}
 @keyframes active-player-glow{from{opacity:.82;filter:brightness(.95) drop-shadow(0 2px 3px #000e) drop-shadow(0 0 2px #ffe37a)}to{opacity:1;filter:brightness(1.5) drop-shadow(0 2px 3px #000e) drop-shadow(0 0 8px #ffe37a)}}
+@keyframes active-marker-dashes{to{background-position:8px 0,-8px 100%,0 8px,100% -8px}}
 .log-list strong{font-weight:700}
 .track-space,.track-space.resource,.track-space.monk,.track-space.score,.track-space.barrel,.track-space.start{border:0;background:transparent;box-shadow:none;outline:none}
 .track-space.available-space,.track-space.current-space{border:0;box-shadow:none;outline:none;animation:none}

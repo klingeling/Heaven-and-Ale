@@ -618,7 +618,12 @@ export const HeavenAle: Game<AleState> = {
       saveStepSnapshot(G);
       p.coins -= cost; cell.tile = tile; cell.side = side; market.splice(tileIndex, 1);
       pending.purchases = (pending.purchases ?? 0) + 1;
-      G.log.unshift(`${p.name} 在第${pending.space + 1}格「${space.label}」购买${tile.kind === 'resource' ? resourceLabels[tile.resource!] : monkIconToken(tile.monk)}板块，花费 ${cost}。`);
+      const tileDescription = tile.kind === 'resource'
+        ? `${resourceLabels[tile.resource!]}资源板块（产值 ${tile.value}）`
+        : `${tile.monk}僧侣板块（产值 ${tile.value}）`;
+      const gardenCell = gardenCells[cellIndex];
+      const sideDescription = side === 'sun' ? '向阳面' : '阴凉面';
+      G.log.unshift(`${p.name} 在第${pending.space + 1}格「${space.label}」购买${tileDescription}，花费 ${cost} 钱币，放置在玩家版图第 ${gardenCell.row + 1} 行第 ${gardenCell.col + 1} 格（${sideDescription}）。`);
       settleHuts(G, p);
       // Stay on the action space so the player may buy more tiles from this
       // supply. Any resulting shed choice is resolved before buying again.

@@ -15,7 +15,7 @@ type MotionPoint = { x: number; y: number };
 type MovementTrail = { id: string; kind: PieceFlight['kind']; playerIndex?: number; resourceKey?: Resource; pathPoints: MotionPoint[]; durationMs: number; started: boolean; scrollX: number; scrollY: number };
 type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean };
 type ReplayViewState = Pick<AleState, 'players' | 'round' | 'maxRounds' | 'resources' | 'monks' | 'scores' | 'barrels' | 'phase' | 'setupStage' | 'pending' | 'startPlayer' | 'firstTurnAfterSetup' | 'startChoice' | 'expansionEnabled' | 'expansion' | 'playerOrder' | 'firstRoundOrder' | 'logCycle'>;
-type ReplayFrame = { id: string; logStart: number; logEnd: number; playerIndex: number; turn?: number; state: ReplayViewState };
+type ReplayFrame = { id: string; logStart: number; logEnd: number; logLines?: string[]; playerIndex: number; turn?: number; state: ReplayViewState };
 const replayFrameLimit = 500;
 const replayStorageKeyName = (key: string) => `heaven-and-ale-replay-v1-${key}`;
 function readReplayFrames(key: string): ReplayFrame[] {
@@ -558,6 +558,10 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
   const ctx = selectedReplayFrame ? { ...state.ctx, currentPlayer: String(selectedReplayFrame.playerIndex), turn: selectedReplayFrame.turn ?? state.ctx.turn } : state.ctx;
   const currentPlayerIndex = Number(ctx.currentPlayer);
   const saveReplayFrame = (logStart: number, logEnd: number, playerIndex: number, turn?: number) => {
+    const logLines = liveG.log.slice(0, Math.max(0, logEnd - logStart));
+    const namedPlayers = liveG.players.map((player, index) => ({ index, name: player.name.trim() })).filter(player => player.name).sort((a, b) => b.name.length - a.name.length);
+    const loggedPlayer = namedPlayers.find(player => logLines.some(line => line.startsWith(player.name)))?.index
+      ?? namedPlayers.find(player => logLines.some(line => line.includes(player.name)))?.index;
     const snapshot = JSON.parse(JSON.stringify({
       players: liveG.players, round: liveG.round, maxRounds: liveG.maxRounds, resources: liveG.resources, monks: liveG.monks,
       scores: liveG.scores, barrels: liveG.barrels, phase: liveG.phase, setupStage: liveG.setupStage, pending: liveG.pending,
@@ -565,7 +569,7 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
       expansionEnabled: liveG.expansionEnabled, expansion: liveG.expansion, playerOrder: liveG.playerOrder,
       firstRoundOrder: liveG.firstRoundOrder, logCycle: liveG.logCycle,
     })) as ReplayViewState;
-    const frame: ReplayFrame = { id: `${state._stateID}-${logEnd}-${playerIndex}`, logStart, logEnd, playerIndex, turn, state: snapshot };
+    const frame: ReplayFrame = { id: `${state._stateID}-${logEnd}-${playerIndex}`, logStart, logEnd, logLines, playerIndex: loggedPlayer ?? playerIndex, turn, state: snapshot };
     const next = persistReplayFrames(replayStorageKey, [...replayFramesRef.current.filter(item => item.id !== frame.id), frame].slice(-replayFrameLimit));
     replayFramesRef.current = next;
     setReplayFrames(next);
@@ -1070,10 +1074,12 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
       const rect = document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${playerIndex}"] [data-garden-index="${cellIndex}"]`)?.getBoundingClientRect();
       return rect && rect.width > 1 ? centered(rect, Math.min(width, rect.width * .82), Math.min(height, rect.height * .82)) : null;
     };
+    const newlyPlacedCells: number[] = [];
     for (let cellIndex = 0; cellIndex < (nextPlayer?.board.length ?? 0); cellIndex++) {
       const tile = nextPlayer.board[cellIndex]?.tile as Tile | undefined;
       const oldTile = oldPlayer?.board[cellIndex]?.tile as Tile | undefined;
       if (!tile || oldTile?.id === tile.id) continue;
+      newlyPlacedCells.push(cellIndex);
       let sourceIndex = -1;
       const oldSupply = tile.kind === 'resource' ? oldState.resources : oldState.monks;
       for (let supplyIndex = 0; supplyIndex < oldSupply.length; supplyIndex++) if (oldSupply[supplyIndex]?.some(item => item.id === tile.id)) { sourceIndex = supplyIndex; break; }
@@ -1081,6 +1087,47 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
       const fromRect = sourceSpace >= 0 ? trackCellRect(sourceSpace, 34, 34) : null;
       const toRect = gardenTargetRect(movingPlayer, cellIndex);
       if (fromRect && toRect) startPieceFlightFromRects('tile', fromRect, toRect, { tile, playerIndex: movingPlayer, targetIndex: cellIndex });
+    }
+
+    if (oldPlayer && nextPlayer && oldPlayer.coins !== nextPlayer.coins) {
+      const money = document.querySelector<HTMLElement>(`.player-info-unit[data-player-index="${movingPlayer}"] .player-card .money .player-coin-icon`);
+      const moneyRect = money?.getBoundingClientRect();
+      const delta = nextPlayer.coins - oldPlayer.coins;
+      const count = Math.min(24, Math.abs(delta));
+      const logLines = nextFrame.logLines ?? [];
+      const trackLogIndex = logLines.map(line => line.match(/第\s*(\d+)\s*格/)?.[1]).find(Boolean);
+      const actionTrackIndex = trackLogIndex ? Number(trackLogIndex) - 1 : -1;
+      const actionTrack = actionTrackIndex >= 0 ? document.querySelector<HTMLElement>(`[data-track-index="${actionTrackIndex}"]`) : null;
+      const boardRect = document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${movingPlayer}"]`)?.getBoundingClientRect();
+      const newTileRects = newlyPlacedCells.map(index => gardenTargetRect(movingPlayer, index, 20, 20)).filter((rect): rect is NonNullable<typeof rect> => !!rect);
+      const startSlot = oldPlayer.startSlot ?? nextPlayer.startSlot;
+      const startSlotElement = startSlot !== null ? document.querySelector<HTMLElement>(`.start-slot.slot-${startSlot}`) : null;
+      const sources = delta > 0
+        ? (newTileRects.length ? newTileRects : actionTrack ? [centered(actionTrack.getBoundingClientRect(), 20)] : startSlotElement ? [centered(startSlotElement.getBoundingClientRect(), 20)] : boardRect ? [centered(boardRect, 20)] : [])
+        : (newTileRects.length ? newTileRects : actionTrack ? [centered(actionTrack.getBoundingClientRect(), 20)] : boardRect ? [centered(boardRect, 20)] : []);
+      for (let index = 0; index < count && moneyRect; index++) {
+        if (delta > 0 && sources.length) startPieceFlightFromRects('coin', sources[index % sources.length], centered(moneyRect, 18), { playerIndex: movingPlayer, delayMs: index * 55 });
+        else if (delta < 0 && sources.length) startPieceFlightFromRects('coin', centered(moneyRect, 18), sources[index % sources.length], { playerIndex: movingPlayer, delayMs: index * 55 });
+      }
+    }
+
+    if (oldPlayer && nextPlayer) {
+      nextPlayer.privilegePairs.forEach((card, pairIndex) => {
+        if (!card || card === 'skip' || oldPlayer.privilegePairs[pairIndex] === card) return;
+        const board = document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${movingPlayer}"]`), boardRect = board?.getBoundingClientRect();
+        const targetSlot = board?.querySelector<HTMLElement>(`[data-privilege-target-index="${pairIndex}"]`)?.getBoundingClientRect();
+        const source = document.querySelector<HTMLElement>(`.privilege[data-privilege-card="${card}"] img`)?.getBoundingClientRect()
+          ?? document.querySelector<HTMLElement>('.privileges')?.getBoundingClientRect();
+        if (!source || !boardRect || !targetSlot) return;
+        startPieceFlightFromRects('privilege-card', centered(source, source.width, source.height), targetSlot, { card, pairIndex, playerIndex: movingPlayer });
+      });
+
+      nextPlayer.claimedBarrels.forEach((barrel, index) => {
+        if (oldPlayer.claimedBarrels.some(item => item.id === barrel.id && item.size === barrel.size)) return;
+        const source = document.querySelector<HTMLElement>(`[data-barrel-source-id="${barrel.id}"]`)?.getBoundingClientRect();
+        const target = [...document.querySelectorAll<HTMLElement>('.barrel-claimed-item')].find(item => item.classList.contains(barrel.size))?.getBoundingClientRect();
+        if (source && target) startPieceFlightFromRects('barrel', centered(source, 42, 52), target, { playerIndex: movingPlayer, barrelId: barrel.id, barrelSize: barrel.size, delayMs: index * 90 });
+      });
     }
 
     const emptiedScoreSources = oldState.scores.map((count, index) => ({ index, remaining: Math.max(0, count - (nextState.scores[index] ?? count)) }));
@@ -1676,7 +1723,13 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
   const ownOrderPosition = actionOrder.indexOf(ownPlayerIndex);
   const rosterOrder = ownOrderPosition < 0 ? actionOrder : [...actionOrder.slice(ownOrderPosition), ...actionOrder.slice(0, ownOrderPosition)];
   const visibleReplayLogs = liveG.log.slice(0, 80).reverse();
-  const visibleReplayLogStart = liveG.log.length - visibleReplayLogs.length;
+  const replayLogRanges = new Map<string, { start: number; end: number }>();
+  let replayLogCursor = 0;
+  for (const frame of [...replayFrames].reverse()) {
+    const lineCount = frame.logLines?.length ?? Math.max(0, frame.logEnd - frame.logStart);
+    if (lineCount > 0) replayLogRanges.set(frame.id, { start: replayLogCursor, end: replayLogCursor + lineCount });
+    replayLogCursor += lineCount;
+  }
   const replayIndex = selectedReplayFrame ? replayFrames.findIndex(frame => frame.id === selectedReplayFrame.id) : -1;
   return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''} ${isReplaying ? 'is-replaying' : ''}`} onDragStartCapture={event => event.preventDefault()}>
     {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />}
@@ -1779,7 +1832,7 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
             </div>
           </div>
         </div>;
-      })}</div><div className="rail-heading log-heading"><span>行动日志</span><button type="button" className="log-export-button" hidden onClick={downloadGameDebug} title="下载当前对局状态、日志及机器人搜索状态">导出对局</button></div><div className="log-list">{visibleReplayLogs.map((line, i) => { const logIndex = visibleReplayLogStart + i; const frame = replayFrames.find(item => logIndex >= item.logStart && logIndex < item.logEnd); const turnDivider = line.startsWith('[[TURN:'); if (turnDivider) return <p key={`${logIndex}-${line}`} className="log-turn-divider">{renderLog(line, liveG.players)}</p>; return <p key={`${logIndex}-${line}`} className={`log-replay-entry ${frame ? 'is-replayable' : ''} ${frame?.id === selectedReplayId ? 'is-selected' : ''}`} role={frame ? 'button' : undefined} tabIndex={frame ? 0 : undefined} title={frame ? '点击回放此行动' : '此条日志暂无本机回放记录'} onClick={() => frame && switchReplayFrame(frame.id)} onKeyDown={event => { if (frame && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); switchReplayFrame(frame.id); } }}>{renderLog(line, liveG.players)}</p>; })}</div></aside>
+      })}</div><div className="rail-heading log-heading"><span>行动日志</span><button type="button" className="log-export-button" hidden onClick={downloadGameDebug} title="下载当前对局状态、日志及机器人搜索状态">导出对局</button></div><div className="log-list">{visibleReplayLogs.map((line, i) => { const logIndex = visibleReplayLogs.length - 1 - i; const frame = replayFrames.find(item => { const range = replayLogRanges.get(item.id); return range && logIndex >= range.start && logIndex < range.end; }); const turnDivider = line.startsWith('[[TURN:'); if (turnDivider) return <p key={`${logIndex}-${line}`} className="log-turn-divider">{renderLog(line, liveG.players)}</p>; return <p key={`${logIndex}-${line}`} className={`log-replay-entry ${frame ? 'is-replayable' : ''} ${frame?.id === selectedReplayId ? 'is-selected' : ''}`} role={frame ? 'button' : undefined} tabIndex={frame ? 0 : undefined} title={frame ? '点击回放此行动' : '此条日志暂无本机回放记录'} onClick={() => frame && switchReplayFrame(frame.id)} onKeyDown={event => { if (frame && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); switchReplayFrame(frame.id); } }}>{renderLog(line, liveG.players)}</p>; })}</div></aside>
     </div>
     {showUnstoredCargoPrompt && action?.baseDone && !action.cargoDone && hasStorableCargoRemaining && <div className="modal-backdrop" onClick={() => setShowUnstoredCargoPrompt(false)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="unstored-cargo-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowUnstoredCargoPrompt(false)}>×</button><span className="eyebrow">CARGO STORAGE</span><h2 id="unstored-cargo-title">还有货物可以拿取</h2><p>当前行动格还剩 {remainingCargoReminder}，并且你还有空存储格可用。要返回继续放置吗？</p><div className="confirm-actions"><button className="btn btn-outline" onClick={() => setShowUnstoredCargoPrompt(false)}>返回拿取</button><button className="btn btn-gold" onClick={() => { setShowUnstoredCargoPrompt(false); moves.finishExpansionCargo(); }}>仍然结束</button></div></div></div>}
     {showRules && <div className="modal-backdrop" onClick={() => setShowRules(false)}><div className="rules-modal" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowRules(false)}>×</button><span className="eyebrow">HOW TO PLAY</span><h2>修道院经营要点</h2><p>每回合沿公共轨道向前移动，并执行落点行动。购买资源与僧侣板块后，将它们放入花园的向阳或阴凉空格。</p><ul><li>阴凉板块按面值购买；资源激活时获得钱币。</li><li>向阳板块花费双倍；资源激活时推进对应生产轨道。</li><li>计分行动会激活对应产值、资源或僧侣，帮助提升最终分数。</li><li>返回起点领取奖励，本轮休息；所有人都返回后开始新一轮。</li></ul><p className="fine-print">线上联机需要先启动项目内的 boardgame.io 服务端。各回合在玩家设备上依次进行。</p></div></div>}

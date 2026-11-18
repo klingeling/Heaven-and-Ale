@@ -1142,7 +1142,8 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
     newlyPlacedDiscs.forEach(({ scoreIndex, playerIndex }) => {
       const sourceIndex = emptiedScoreSources.find(source => source.remaining > 0)?.index;
       if (sourceIndex === undefined) return;
-      const sourceElement = document.querySelector<HTMLElement>(`[data-score-source-index="${sourceIndex}"]`);
+      const sourceTrackIndex = state.G.track.findIndex((space: any) => space.type === 'score' && space.sourceIndex === sourceIndex);
+      const sourceElement = sourceTrackIndex >= 0 ? document.querySelector<HTMLElement>(`[data-track-index="${sourceTrackIndex}"]`) : null;
       const sourceRect = sourceElement?.getBoundingClientRect();
       const board = document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${playerIndex}"]`), boardRect = board?.getBoundingClientRect();
       const position = scoringDiscPositions[scoreIndex];

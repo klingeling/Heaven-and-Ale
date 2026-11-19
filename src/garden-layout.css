@@ -371,8 +371,15 @@
 .table-screen.is-replaying .abandon-btn,.table-screen.is-replaying .abandon-vote-button,.table-screen.is-replaying .abandon-vote-banner button{display:none}
 @media(max-width:640px){.replay-toolbar{align-items:flex-start;flex-direction:column}.replay-toolbar>div{width:100%;flex-wrap:wrap}.replay-toolbar>div span{margin-right:auto}}
 .barrel-claim-badge.black{border-color:#d8d8d8}
-.abandon-vote-progress{display:flex;justify-content:center;gap:18px;padding:7px 12px;background:#29352d;color:#e7d7b4;border-bottom:1px solid #c5a46555;font-size:12px}
-.abandon-vote-progress span{color:#cbc4b2}
+.abandon-vote-progress{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:10px 16px;padding:10px 12px;background:#202d26;border-bottom:1px solid #c5a46588;color:#e7d7b4;font-size:13px}
+.abandon-vote-progress-title{white-space:nowrap;color:#f1dcad}
+.abandon-vote-voters{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px}
+.abandon-vote-voter{display:inline-flex;align-items:center;gap:8px;padding:5px 10px;border:1px solid;border-radius:999px;font-size:12px;line-height:1.2;white-space:nowrap}
+.abandon-vote-voter strong{font-weight:700}
+.abandon-vote-voter b{font-size:11px}
+.abandon-vote-voter.is-voted{border-color:#56c881;background:#19482f;color:#e0ffe9;box-shadow:inset 0 0 0 1px #56c88135}
+.abandon-vote-voter.is-pending{border-color:#d87468;background:#512b2b;color:#ffe4dd;box-shadow:inset 0 0 0 1px #d8746835}
+@media(max-width:600px){.abandon-vote-progress{justify-content:flex-start;gap:8px}.abandon-vote-voters{justify-content:flex-start}.abandon-vote-voter{gap:6px;padding:5px 8px;font-size:11px}}
 .expansion-toggle{display:flex!important;align-items:center;gap:9px;padding:8px 10px;border:1px solid #b79a5e66;background:#292d24;color:#f0e1bc}
 .expansion-toggle input{flex:0 0 auto;width:17px;height:17px;accent-color:#d1a84d}
 .expansion-toggle span{display:grid;gap:2px}

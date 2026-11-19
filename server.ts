@@ -102,6 +102,21 @@ async function getUser(ctx: any) {
   if (!response.ok) ctx.throw(401, 'Your sign-in session has expired.');
   return await response.json() as { id: string; email?: string };
 }
+async function usernameAvailable(username: string, excludeUserID?: string) {
+  const normalized = username.toLocaleLowerCase();
+  for (let page = 1; page <= 1000; page++) {
+    const response = await fetch(`${supabaseUrl}/auth/v1/admin/users?page=${page}&per_page=1000`, {
+      headers: { apikey: supabaseSecret!, Authorization: `Bearer ${supabaseSecret!}` },
+    });
+    if (!response.ok) throw new Error(`Supabase user lookup failed (${response.status}).`);
+    const payload = await response.json() as { users?: any[] };
+    const users = payload.users || [];
+    if (users.some(user => user.id !== excludeUserID && String(user.user_metadata?.username || '').toLocaleLowerCase() === normalized)) return false;
+    if (users.length < 1000) return true;
+  }
+  throw new Error('Username lookup reached its safety limit.');
+}
+const validUsername = (value: string) => value.length >= 2 && value.length <= 18 && /^[\p{L}\p{N}_-]+$/u.test(value);
 async function getRoom(matchID: string) {
   const rows = await supabaseRequest(queryPath('online_rooms', { select: '*', match_id: eq(matchID) })) as any[];
   return rows[0] || null;
@@ -230,10 +245,24 @@ server.router.get('/account/rooms', async ctx => {
   ctx.body = rooms;
 });
 
+server.router.post('/account/profile/username-available', koaBody(), async ctx => {
+  const username = String(ctx.request.body?.username || '').trim();
+  if (!validUsername(username)) ctx.throw(400, '用户名需为 2–18 个字，只能包含文字、数字、下划线或短横线。');
+  const token = String(ctx.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  let excludeUserID: string | undefined;
+  if (token) excludeUserID = (await getUser(ctx)).id;
+  try { ctx.body = { available: await usernameAvailable(username, excludeUserID) }; }
+  catch { ctx.throw(503, '暂时无法检查用户名，请稍后重试。'); }
+});
+
 server.router.post('/account/profile/username', koaBody(), async ctx => {
   const user = await getUser(ctx);
   const username = String(ctx.request.body?.username || '').trim().slice(0, 18);
-  if (!username) ctx.throw(400, 'Username is required.');
+  if (!validUsername(username)) ctx.throw(400, '用户名需为 2–18 个字，只能包含文字、数字、下划线或短横线。');
+  let available = false;
+  try { available = await usernameAvailable(username, user.id); }
+  catch { ctx.throw(503, '暂时无法检查用户名，请稍后重试。'); }
+  if (!available) ctx.throw(409, '这个用户名已被使用，请换一个。');
   const memberships = await supabaseRequest(queryPath('online_room_members', {
     select: 'match_id,player_id', user_id: eq(user.id), is_bot: 'eq.false',
   })) as any[];

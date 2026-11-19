@@ -1,2 +1,38 @@
 .account-area{margin-left:auto;display:flex;align-items:center;gap:8px;max-width:50%;flex-wrap:wrap;justify-content:flex-end}.account-area .btn{height:32px;padding:0 12px;font-size:10px}.account-name{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#dfd2b2;font-size:11px}.account-login-card{border:1px solid rgba(225,215,188,.2);padding:12px 13px;margin:10px 0 14px;background:rgba(255,255,255,.025);display:grid;gap:7px}.account-login-card b{font-size:12px;color:#ead9b3}.account-login-card small{font-size:10px;color:#aaa999}.account-login-card>div{display:flex;gap:8px;flex-wrap:wrap}.account-login-card>div.account-social-login{padding-top:8px;border-top:1px solid rgba(225,215,188,.12)}.account-login-card .btn{flex:1;min-width:120px}.signed-in-note{padding:9px 11px;border-left:2px solid #87aa72;background:rgba(135,170,114,.1);font-size:11px;color:#e3ddb9;margin:9px 0}.room-security-options{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end}.room-security-options .expansion-toggle{min-height:60px}.account-match-group{margin-top:16px}.account-match-group h3{font-size:12px;font-weight:600;letter-spacing:.1em;color:#d7c18e;margin:0 0 8px;border-bottom:1px solid rgba(226,208,168,.12);padding-bottom:7px}.account-match-group h3 small{font-size:10px;color:#a7a28e;margin-left:7px}.my-online-rooms{width:min(1100px,90vw);margin:20px auto 0;position:relative}.my-online-rooms .lobby-room-list{max-height:none}.my-online-rooms .my-room{grid-template-columns:minmax(0,1fr) auto auto auto}.my-online-rooms .my-room em{min-width:74px}.lobby-empty{padding:13px 8px;text-align:center;color:#a8a798;font-size:11px}.waiting-room .expansion-room-badge{width:max-content;max-width:100%}
 @media(max-width:680px){.account-area{max-width:60%;gap:5px}.account-name{max-width:120px}.account-area .btn{height:30px;padding:0 8px;font-size:9px}.room-security-options{grid-template-columns:1fr}.my-online-rooms .my-room{grid-template-columns:minmax(0,1fr) auto}.my-online-rooms .my-room .btn{grid-row:2}.my-online-rooms .my-room .btn-danger{grid-column:2}}
+
+/* Account access stays in the header; room history gets a dedicated column. */
+.account-area{max-width:none;flex-wrap:nowrap}
+.account-area .account-user-button{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.landing-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,330px);gap:18px;align-items:start}
+.landing-main-column,.landing-room-column{min-width:0}
+.landing-main-column .setup-grid{max-width:none}
+.landing-room-column>.lobby-list-heading{margin:0 0 9px;padding:0 2px 8px;border-bottom:1px solid rgba(226,208,168,.18);color:#ead9b3}
+.landing-room-column .my-online-rooms{width:100%;margin:0 0 10px;padding:14px 13px}
+.landing-room-column .my-room{grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;padding:8px 0}
+.landing-room-column .my-room>span{grid-column:1/-1}
+.landing-room-column .my-room>em{grid-column:1;grid-row:2;min-width:0}
+.landing-room-column .my-room .btn{grid-row:2;grid-column:2}
+.landing-room-column .my-room .btn-danger{grid-column:2;grid-row:3}
+.landing-room-column .account-match-group h3{display:flex;justify-content:space-between}
+.account-modal-backdrop{position:fixed;inset:0;z-index:5000;display:grid;place-items:center;padding:18px;background:rgba(7,13,10,.78);backdrop-filter:blur(7px)}
+.account-modal{position:relative;width:min(440px,100%);max-height:min(90vh,720px);overflow:auto;padding:30px;background:#1c2b24;border:1px solid rgba(217,194,148,.4);box-shadow:0 24px 90px #000a;color:#f3efe5}
+.account-modal h2{font-family:var(--serif);font-size:25px;margin:8px 0;color:#f1e6ce}
+.account-modal p{font-size:12px;line-height:1.8;color:#b8b9ac;margin:0 0 20px}
+.account-modal label{display:block;margin:14px 0;color:#d2cbb8;font-size:11px}
+.account-modal input{display:block;width:100%;height:42px;margin-top:7px;padding:0 12px;border:1px solid rgba(225,215,188,.2);background:#293831;color:#f4eddf;outline:0}
+.account-modal input:focus{border-color:#caab70}
+.account-modal .btn-gold{margin-top:14px}
+.account-modal-close{position:absolute;right:14px;top:12px;border:0;background:none;color:#dfc790;font-size:27px;line-height:1}
+.account-modal-social{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px;padding-top:15px;border-top:1px solid rgba(225,215,188,.14)}
+.account-modal-social .btn{padding:0 8px}
+.profile-email{display:grid;gap:4px;margin:18px 0;padding:12px;background:rgba(255,255,255,.035);border-left:2px solid #87aa72;overflow-wrap:anywhere}
+.profile-email small,.profile-hint{font-size:10px;color:#aaa999}
+.profile-email b{font-size:12px;color:#e3ddb9;font-weight:500}
+.account-modal .profile-hint{display:block;margin-top:-8px}
+.account-modal .profile-signout{width:100%;margin-top:18px}
+.waiting-username-note{display:flex;align-items:center;gap:8px;margin:14px 0;padding:10px 12px;background:rgba(255,255,255,.035);color:#c9c3b2;font-size:11px}
+.waiting-username-note b{color:#e8d6ad}
+.waiting-username-note .text-button{margin:0 0 0 auto;white-space:nowrap}
+@media(max-width:980px){.landing-columns{grid-template-columns:1fr}.landing-room-column{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}.landing-room-column>.lobby-list-heading{grid-column:1/-1}.landing-room-column .my-online-rooms{margin:0}}
+@media(max-width:680px){.account-area{max-width:52%;gap:5px}.account-area .account-user-button{max-width:145px}.landing-room-column{grid-template-columns:1fr}.landing-room-column>.lobby-list-heading{grid-column:auto}.account-modal{padding:25px 20px}.account-modal-social{grid-template-columns:1fr}.waiting-username-note{flex-wrap:wrap}.waiting-username-note .text-button{margin-left:0}}

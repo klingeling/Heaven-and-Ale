@@ -230,6 +230,38 @@ server.router.get('/account/rooms', async ctx => {
   ctx.body = rooms;
 });
 
+server.router.post('/account/profile/username', koaBody(), async ctx => {
+  const user = await getUser(ctx);
+  const username = String(ctx.request.body?.username || '').trim().slice(0, 18);
+  if (!username) ctx.throw(400, 'Username is required.');
+  const memberships = await supabaseRequest(queryPath('online_room_members', {
+    select: 'match_id,player_id', user_id: eq(user.id), is_bot: 'eq.false',
+  })) as any[];
+  const seats = new Map<string, number[]>();
+  for (const member of memberships) {
+    const matchID = String(member.match_id);
+    seats.set(matchID, [...(seats.get(matchID) || []), Number(member.player_id)]);
+  }
+  for (const [matchID, playerIDs] of seats) {
+    const fetched = await (server.db as any).fetch(matchID, { metadata: true });
+    if (!fetched?.metadata) continue;
+    const metadata = fetched.metadata;
+    let changed = false;
+    for (const playerID of playerIDs) {
+      if (metadata.players?.[playerID]) {
+        metadata.players[playerID].name = username;
+        changed = true;
+      }
+    }
+    if (!changed) continue;
+    await (server.db as any).setMetadata(matchID, metadata);
+    await supabaseRequest(queryPath('online_room_members', {
+      match_id: eq(matchID), user_id: eq(user.id), is_bot: 'eq.false',
+    }), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ player_name: username }) });
+  }
+  ctx.body = { ok: true, username };
+});
+
 server.router.post('/account/rooms/status', koaBody(), async ctx => {
   const user = await getUser(ctx);
   const { matchID, status, playerID, credentials } = ctx.request.body || {};

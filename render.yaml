@@ -9,6 +9,10 @@ services:
     envVars:
       - key: CLIENT_ORIGINS
         value: https://heaven-and-ale-test-web-2026.onrender.com
+      - key: SUPABASE_URL
+        value: https://luvbolgmebuppqhegpiv.supabase.co
+      - key: SUPABASE_SECRET_KEY
+        sync: false
 
   - type: web
     name: heaven-and-ale-test-web-2026
@@ -18,3 +22,7 @@ services:
     envVars:
       - key: VITE_GAME_SERVER
         value: https://heaven-and-ale-test-api-2026.onrender.com
+      - key: VITE_SUPABASE_URL
+        value: https://luvbolgmebuppqhegpiv.supabase.co
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_4_u36_fyWYyRs3x5o2jcfQ_nL7qefe8

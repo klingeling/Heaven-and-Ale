@@ -1,0 +1,52 @@
+-- Private backend storage for live and completed boardgame.io matches, room access,
+-- and account-based recovery of the player's seat credentials.
+create table if not exists public.bgio_matches (
+  match_id text primary key,
+  game_name text not null,
+  state jsonb not null,
+  initial_state jsonb not null,
+  log jsonb not null default '[]'::jsonb,
+  metadata jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.online_rooms (
+  match_id text primary key references public.bgio_matches(match_id) on delete cascade,
+  owner_user_id uuid not null references auth.users(id) on delete cascade,
+  status text not null default 'waiting' check (status in ('waiting', 'playing', 'finished')),
+  is_private boolean not null default false,
+  password_hash text,
+  invite_hash text,
+  invite_ciphertext text,
+  max_players integer not null check (max_players between 2 and 4),
+  expansion_enabled boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.online_room_members (
+  match_id text not null references public.online_rooms(match_id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  owner_user_id uuid not null references auth.users(id) on delete cascade,
+  player_id integer not null,
+  player_name text not null,
+  credentials_ciphertext text not null,
+  is_bot boolean not null default false,
+  joined_at timestamptz not null default now(),
+  primary key (match_id, player_id)
+);
+
+create index if not exists online_room_members_user_idx on public.online_room_members(user_id, joined_at desc);
+create index if not exists online_room_members_owner_idx on public.online_room_members(owner_user_id, match_id);
+create index if not exists online_rooms_public_waiting_idx on public.online_rooms(status, created_at desc) where is_private = false;
+
+alter table public.bgio_matches enable row level security;
+alter table public.online_rooms enable row level security;
+alter table public.online_room_members enable row level security;
+
+revoke all on public.bgio_matches from anon, authenticated;
+revoke all on public.online_rooms from anon, authenticated;
+revoke all on public.online_room_members from anon, authenticated;
+grant all on public.bgio_matches to service_role;
+grant all on public.online_rooms to service_role;
+grant all on public.online_room_members to service_role;

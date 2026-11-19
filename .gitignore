@@ -2,3 +2,4 @@ TTSMOD/
 node_modules/
 dist/
 training-logs/
+.env.local

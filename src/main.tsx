@@ -496,7 +496,12 @@ function App() {
       }
       creationStage = '进入等候室';
       const match = await lobby.getMatch(gameName, created.matchID);
-      await enterWaitingRoom({ matchID: created.matchID, playerID: String(host.playerID), credentials: host.playerCredentials, playerName: name, numPlayers: count, host: true, botSeats, botDifficulty: onlineBotDifficulty, expansionEnabled: onlineExpansionEnabled, botCredentials, inviteToken, isPrivate: roomIsPrivate, status: 'waiting' }, match);
+      const session: OnlineRoomSession = { matchID: created.matchID, playerID: String(host.playerID), credentials: host.playerCredentials, playerName: name, numPlayers: count, host: true, botSeats, botDifficulty: onlineBotDifficulty, expansionEnabled: onlineExpansionEnabled, botCredentials, inviteToken, isPrivate: roomIsPrivate, status: 'waiting' };
+      saveOnlineSession(session);
+      setAccountRooms(current => [session, ...current.filter(room => room.matchID !== session.matchID)]);
+      setOpenRooms(current => [{ ...matchAsRoom(match), isPrivate: roomIsPrivate, hasPassword: !!roomPassword.trim(), status: 'waiting' }, ...current.filter(room => room.matchID !== session.matchID)]);
+      setRoomCode(''); setRoomInviteToken(''); setRoomInfo(''); setScreen('home');
+      const url = new URL(window.location.href); url.pathname = '/'; url.searchParams.delete('room'); url.searchParams.delete('invite'); window.history.replaceState({}, '', url);
       setRoomPassword('');
       void refreshRooms();
     } catch (e) {

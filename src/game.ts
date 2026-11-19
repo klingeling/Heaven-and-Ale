@@ -188,7 +188,10 @@ const makeDeck = (G: AleState, random: { Shuffle<T>(items: T[]): T[] }, rounds: 
 };
 
 function redactExpansionStoreSetup(G: AleState, playerID: string | null): AleState {
-  if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion || G.expansion.storeSetupReady.every(Boolean)) return G;
+  // Keep every other player's private layout hidden through the final
+  // confirmation. The last player marks their layout ready before confirming;
+  // revealing on `storeSetupReady.every(Boolean)` would expose it too early.
+  if (G.phase !== 'setup' || G.setupStage !== 'expansion-stores' || !G.expansion) return G;
   const viewer = playerID === null ? -1 : Number(playerID);
   const sanitize = (state: any, depth = 0): any => {
     if (!state || typeof state !== 'object' || depth > 3) return state;

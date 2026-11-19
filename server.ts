@@ -235,14 +235,14 @@ server.router.get('/account/rooms', async ctx => {
     const main = own.find(member => !member.is_bot) || own[0];
     const fetched = await (server.db as any).fetch(matchID, { metadata: true, state: true, initialState: true, log: true });
     if (!room || !fetched?.metadata || !main) continue;
-    const players = fetched.metadata.players || [];
+    const players = Object.values(fetched.metadata.players || {}) as any[];
     const started = room.status !== 'waiting';
     const ended = !!fetched.metadata.gameover || fetched.state?.G?.phase === 'finished';
     const status = ended ? 'finished' : started ? 'playing' : 'waiting';
     if (status !== room.status) await supabaseRequest(queryPath('online_rooms', { match_id: eq(matchID) }), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status, updated_at: new Date().toISOString() }) });
     rooms.push({ matchID, status, isPrivate: room.is_private, maxPlayers: room.max_players, expansionEnabled: room.expansion_enabled,
       owner: host, host, playerID: String(main.player_id), credentials: decrypt(main.credentials_ciphertext), playerName: main.player_name,
-      numPlayers: room.max_players, players: players.map((player: any, i: number) => ({ id: i, name: player.name, isConnected: player.isConnected, data: player.data })),
+      numPlayers: room.max_players, players: players.map((player: any, i: number) => ({ id: Number(player.id ?? i), name: player.name, isConnected: player.isConnected, data: player.data })),
       botSeats: allRows.filter(member => member.is_bot).map(member => member.player_id),
       botCredentials: host ? allRows.filter(member => member.is_bot).map(member => ({ playerID: String(member.player_id), credentials: decrypt(member.credentials_ciphertext) })) : [],
       inviteToken: host && room.invite_ciphertext ? decrypt(room.invite_ciphertext) : undefined, isPrivate: room.is_private, gameover: fetched.metadata.gameover, updatedAt: Date.parse(room.updated_at),
@@ -314,8 +314,8 @@ server.router.get('/account/public-rooms', async ctx => {
   for (const room of rows) {
     const fetched = await (server.db as any).fetch(room.match_id, { metadata: true });
     if (!fetched?.metadata) continue;
-    const players = fetched.metadata.players || [];
-    result.push({ matchID: room.match_id, players: players.map((player: any, id: number) => ({ id, name: player.name, isConnected: player.isConnected, data: player.data })),
+    const players = Object.values(fetched.metadata.players || {}) as any[];
+    result.push({ matchID: room.match_id, players: players.map((player: any, i: number) => ({ id: Number(player.id ?? i), name: player.name, isConnected: player.isConnected, data: player.data })),
       setupData: fetched.metadata.setupData, isPrivate: false, hasPassword: !!room.password_hash, status: room.status, updatedAt: Date.parse(room.updated_at) });
   }
   ctx.body = result;

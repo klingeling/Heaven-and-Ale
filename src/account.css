@@ -82,9 +82,8 @@
 .room-tile-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:#a9a694;font-size:9px}
 .room-tile-meta span+span:before{content:'·';margin-right:5px;color:#786f5c}
 .room-tile-actions{display:flex;gap:6px;margin-top:1px}
-.room-tile-actions .btn{min-height:28px;padding:4px 10px;font-size:10px}
-.room-tile-actions .btn-light{flex:1}
+.room-tile-actions .btn{flex:1;min-width:0;min-height:28px;padding:4px 8px;font-size:10px;white-space:nowrap}
 .room-tile .room-message{font-size:10px}
 .confirm-modal>label{display:grid;gap:6px;color:#dfd2b2;font-size:12px;margin:15px 0}
 .confirm-modal>label input{width:100%;box-sizing:border-box;padding:10px;background:rgba(0,0,0,.2);border:1px solid rgba(217,194,148,.32);color:#f2e6ca;border-radius:3px}
-@media(max-width:520px){.room-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.room-tile{padding:8px;gap:5px}.room-tile-heading>b{font-size:10px}.room-tile-players{font-size:9px}.room-tile-meta{font-size:8px}.room-tile-actions .btn{padding:4px 6px;font-size:9px}}
+@media(max-width:520px){.room-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.room-tile{padding:8px;gap:5px}.room-tile-heading>b{font-size:10px}.room-tile-players{font-size:9px}.room-tile-meta{font-size:8px}.room-tile-actions .btn{padding:4px 5px;font-size:9px}}

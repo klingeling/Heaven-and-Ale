@@ -479,7 +479,7 @@ function App() {
     const bots = session.botCredentials.map(({ playerID, credentials }) => ({ seat: Number(playerID), client: makeClient(playerID, credentials) }));
     main.start(); bots.forEach(({ client: botClient }) => botClient.start());
     const room = matchAsRoom(match), votes = readAbandonVotes(room, session.botSeats);
-    setLocalConfig(null); setClient(main); setRemoteBotClients(bots); setActiveBotSeats([]); setBotSeats(session.botSeats); setReplayMode(false);
+    setLocalConfig(null); setClient(main); setSnapshot((main as any).store.getState()); setRemoteBotClients(bots); setActiveBotSeats([]); setBotSeats(session.botSeats); setReplayMode(false);
     setOnlineRoom(session); setRoomMatch(room); setAbandonVoteState({ votes, passed: votes.length >= requiredAbandonVotes(session.numPlayers, session.botSeats) });
     setRoomInfo(`线上对局 · ${session.gameNumber}`); setScreen('game');
     const route = `/game/${session.gameNumber}`;
@@ -659,8 +659,7 @@ function App() {
       } catch { /* room may already have started or expired */ }
       localStorage.removeItem(onlineSessionKey(onlineRoom.matchID));
     }
-    const url = new URL(window.location.href); url.pathname = '/'; url.search = ''; window.history.replaceState({}, '', url);
-    setOnlineRoom(null); setRoomMatch(null); setScreen('home'); setRoomInfo(''); void refreshRooms();
+    window.location.replace(`${window.location.origin}/`);
   };
   const updateRoomName = async (nextName = playerName) => {
     if (!onlineRoom) return;
@@ -793,12 +792,7 @@ function App() {
     if (localConfig && liveState?.G?.phase === 'finished') { localStorage.removeItem(localSaveKey); setSavedLocal(null); }
     client?.stop();
     remoteBotClients.forEach(({ client: botClient }) => botClient.stop());
-    setRemoteBotClients([]); setClient(null); setSnapshot(null); setScreen('home'); setReplayMode(false); setActiveBotSeats([]);
-    setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setRoomCode(''); setPlayerCount(2); setBotSeats([]);
-    setPlayerNames(['玩家1', '玩家2', '玩家3', '玩家4']); setLocalPlayerColors([...playerColors]); setBotDifficulty('normal');
-    setRouteGameNumber(''); setRouteResolvedMatchID(''); setRouteRoomPreview(null); setRouteError(''); routeJoinStartedRef.current = '';
-    const url = new URL(window.location.href); url.pathname = '/'; url.search = ''; window.history.replaceState({}, '', url);
-    void refreshRooms();
+    window.location.replace(`${window.location.origin}/`);
   };
   returnHomeRef.current = returnHome;
   const abandonLocalGame = () => { localStorage.removeItem(localSaveKey); setSavedLocal(null); returnHome(); };

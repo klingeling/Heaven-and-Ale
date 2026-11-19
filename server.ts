@@ -22,8 +22,10 @@ async function supabaseRequest(path: string, init: RequestInit = {}) {
       ...(init.headers || {}),
     },
   });
-  if (!response.ok) throw new Error(`Supabase request failed (${response.status}): ${await response.text()}`);
-  return response.status === 204 ? null : response.json();
+  const body = await response.text();
+  if (!response.ok) throw new Error(`Supabase request failed (${response.status}): ${body}`);
+  if (!body.trim()) return null;
+  return JSON.parse(body);
 }
 
 const queryPath = (table: string, params: Record<string, string>) => {

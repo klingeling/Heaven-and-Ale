@@ -533,8 +533,7 @@ function App() {
       saveOnlineSession(session);
       setAccountRooms(current => [session, ...current.filter(room => room.matchID !== session.matchID)]);
       setOpenRooms(current => [{ ...matchAsRoom(match), gameNumber, isPrivate: roomIsPrivate, status: 'waiting' }, ...current.filter(room => room.matchID !== session.matchID)]);
-      setRoomCode(''); setRoomInfo(''); setScreen('home');
-      const url = new URL(window.location.href); url.pathname = '/'; url.search = ''; window.history.replaceState({}, '', url);
+      await enterWaitingRoom(session, match);
       void refreshRooms();
     } catch (e) {
       if (createdMatchID && hostCredentials) {

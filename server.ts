@@ -156,7 +156,7 @@ const storeMember = async (matchID: string, userID: string, member: any, ownerID
 };
 
 // Private-room access is checked before the normal boardgame.io join route runs.
-server.router.post('/games/:name/:id/join', koaBody(), async (ctx, next) => {
+server.router.post('/games/:name/:id/join', async (ctx, next) => {
   if (configured) {
     const room = await getRoom(ctx.params.id);
     if (room?.is_private || room?.password_hash) {

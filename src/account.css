@@ -65,3 +65,26 @@
 .profile-password-fields>b{font-family:var(--serif);font-size:15px;color:#ead9b3}
 .profile-password-fields .btn{width:100%;margin-top:6px}
 @media(max-width:780px){.home-page-content{gap:17px}.home-match-groups .my-room{grid-template-columns:minmax(0,1fr) auto;gap:6px}.home-match-groups .my-room>span{grid-column:1/-1}.home-match-groups .my-room>em{grid-column:1;grid-row:2}.home-match-groups .my-room .btn{grid-column:2;grid-row:2}.home-match-groups .my-room .btn-danger{grid-column:2;grid-row:3}.new-game-page{padding:17px 12px}.new-game-setup .setup-grid{grid-template-columns:1fr}.new-game-heading{grid-template-columns:1fr;gap:12px}}
+.home-page-content{gap:14px;margin-top:14px}
+.home-create-game{height:44px;margin-bottom:0}
+.home-rooms-section{padding:0;background:transparent;border:0}
+.home-list-heading{display:flex;align-items:center;justify-content:space-between;margin:0 0 9px}
+.home-list-heading h2{margin:0;color:#ead9b3;font:600 15px var(--serif)}
+.home-list-heading button{border:1px solid rgba(217,194,148,.28);background:rgba(255,255,255,.035);color:#d9c294;border-radius:4px;padding:5px 10px;font-size:10px;cursor:pointer}
+.room-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,245px),1fr));gap:9px}
+.room-tile{min-width:0;padding:10px 11px;background:rgba(23,34,29,.76);border:1px solid rgba(217,194,148,.2);border-radius:6px;display:grid;gap:6px}
+.room-tile-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.room-tile-heading>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ead9b3;font-size:12px}
+.room-status{flex:none;padding:2px 6px;border-radius:10px;background:rgba(215,193,142,.12);color:#d9c294;font-size:9px}
+.room-status-playing{background:rgba(96,157,118,.18);color:#a4d1a8}
+.room-status-finished{background:rgba(145,145,145,.16);color:#c5c2b8}
+.room-tile-players{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#b8b9ac;font-size:10px}
+.room-tile-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:#a9a694;font-size:9px}
+.room-tile-meta span+span:before{content:'·';margin-right:5px;color:#786f5c}
+.room-tile-actions{display:flex;gap:6px;margin-top:1px}
+.room-tile-actions .btn{min-height:28px;padding:4px 10px;font-size:10px}
+.room-tile-actions .btn-light{flex:1}
+.room-tile .room-message{font-size:10px}
+.confirm-modal>label{display:grid;gap:6px;color:#dfd2b2;font-size:12px;margin:15px 0}
+.confirm-modal>label input{width:100%;box-sizing:border-box;padding:10px;background:rgba(0,0,0,.2);border:1px solid rgba(217,194,148,.32);color:#f2e6ca;border-radius:3px}
+@media(max-width:520px){.room-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.room-tile{padding:8px;gap:5px}.room-tile-heading>b{font-size:10px}.room-tile-players{font-size:9px}.room-tile-meta{font-size:8px}.room-tile-actions .btn{padding:4px 6px;font-size:9px}}

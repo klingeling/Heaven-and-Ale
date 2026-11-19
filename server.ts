@@ -1,6 +1,5 @@
 import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual, createCipheriv, createDecipheriv } from 'node:crypto';
 import { Server } from 'boardgame.io/server';
-import { InMemory } from 'boardgame.io/server';
 import koaBody from 'koa-body';
 import type { Server as BgioServer } from 'boardgame.io';
 import { HeavenAle } from './src/game';
@@ -92,7 +91,9 @@ class SupabaseMatchStorage {
   }
 }
 
-const server = Server({ games: [HeavenAle], origins: allowedOrigins, apiOrigins: allowedOrigins, db: configured ? new SupabaseMatchStorage() as any : new InMemory() });
+// Let boardgame.io choose its normal in-memory/flat-file adapter when Supabase
+// is not configured; only provide a custom adapter for the persistent setup.
+const server = Server({ games: [HeavenAle], origins: allowedOrigins, apiOrigins: allowedOrigins, db: configured ? new SupabaseMatchStorage() as any : undefined });
 
 async function getUser(ctx: any) {
   const token = String(ctx.get('authorization') || '').replace(/^Bearer\s+/i, '');

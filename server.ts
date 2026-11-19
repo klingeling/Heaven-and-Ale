@@ -322,7 +322,15 @@ server.router.get('/account/rooms/by-number/:number', async ctx => {
   const rows = await supabaseRequest(queryPath('online_rooms', { select: '*', game_number: eq(gameNumber) })) as any[];
   const room = rows[0];
   if (!room) ctx.throw(404, '对局不存在或已被删除。');
-  ctx.body = { gameNumber, matchID: room.match_id, status: room.status, isPrivate: room.is_private, maxPlayers: room.max_players };
+  const fetched = await (server.db as any).fetch(room.match_id, { metadata: true, state: true });
+  if (!fetched?.metadata) ctx.throw(404, '对局不存在或已被删除。');
+  const players = Object.values(fetched.metadata.players || {}) as any[];
+  const status = fetched.metadata.gameover || fetched.state?.G?.phase === 'finished' ? 'finished' : room.status;
+  ctx.body = {
+    gameNumber, matchID: room.match_id, status, isPrivate: room.is_private, maxPlayers: room.max_players,
+    expansionEnabled: room.expansion_enabled,
+    players: players.map((player: any, i: number) => ({ id: Number(player.id ?? i), name: player.name, isConnected: player.isConnected })),
+  };
 });
 
 server.router.post('/admin/matches/:id/delete', koaBody(), async ctx => {

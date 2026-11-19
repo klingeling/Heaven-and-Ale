@@ -893,6 +893,7 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
   const rawG = state.G as AleState;
   const liveG = onlinePlayerNames ? { ...rawG, players: rawG.players.map((player, i) => onlinePlayerNames[i] ? { ...player, name: onlinePlayerNames[i] } : player) } as AleState : rawG;
   const [gameAssetsReady, setGameAssetsReady] = useState(false);
+  const [gameAssetsProgress, setGameAssetsProgress] = useState(0);
   useEffect(() => {
     let active = true;
     const paths = new Set<string>([
@@ -917,12 +918,23 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
         else if (cell.tile?.monk) paths.add(`/Images/monk_tile_${['僧侣A', '僧侣B', '僧侣C', '僧侣D'].indexOf(cell.tile.monk) >= 0 ? ['A', 'B', 'C', 'D'][['僧侣A', '僧侣B', '僧侣C', '僧侣D'].indexOf(cell.tile.monk)] : 'A'}.png`);
       });
     });
-    Promise.all([...paths].map(path => new Promise<void>(resolve => {
+    const assets = [...paths];
+    let completed = 0;
+    const markComplete = () => {
+      completed++;
+      if (active) setGameAssetsProgress(Math.round(completed / assets.length * 100));
+    };
+    Promise.all(assets.map(path => new Promise<void>(resolve => {
       const image = new Image();
-      const decoded = () => { if (typeof image.decode === 'function') void image.decode().then(() => resolve()).catch(() => resolve()); else resolve(); };
-      image.onload = decoded; image.onerror = () => resolve(); image.src = path;
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true; markComplete(); resolve();
+      };
+      const decoded = () => { if (typeof image.decode === 'function') void image.decode().then(finish).catch(finish); else finish(); };
+      image.onload = decoded; image.onerror = finish; image.src = path;
       if (image.complete) decoded();
-    }))).then(() => { if (active) setGameAssetsReady(true); });
+    }))).then(() => { if (active) { setGameAssetsProgress(100); setGameAssetsReady(true); } });
     return () => { active = false; };
   }, []);
   const [replayFrames, setReplayFrames] = useState<ReplayFrame[]>(() => readReplayFrames(replayStorageKey));
@@ -2231,7 +2243,7 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
     {showAbandonConfirm && <div className="modal-backdrop" onClick={() => setShowAbandonConfirm(false)}><div className="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="abandon-title" onClick={e => e.stopPropagation()}><button className="close-modal" onClick={() => setShowAbandonConfirm(false)}>×</button><span className="eyebrow">ABANDON GAME</span><h2 id="abandon-title">放弃当前对局？</h2><p>放弃后会删除本地存档，无法继续这场对局。</p><div className="confirm-actions"><button className="btn btn-outline" onClick={() => setShowAbandonConfirm(false)}>继续游戏</button><button className="btn btn-danger" onClick={onAbandon}>确认放弃</button></div></div></div>}
     {toast && <div className="toast" onClick={() => setToast('')}>{toast} <span>×</span></div>}
     {handoffPlayerIndex !== null && !isReplaying && <div className="local-handoff-screen" role="dialog" aria-modal="true" aria-labelledby="local-handoff-title"><div className="local-handoff-card"><span className="eyebrow">LOCAL GAME · PASS THE DEVICE</span><div className="local-handoff-icon" aria-hidden="true">✦</div><h2 id="local-handoff-title">请将设备交给</h2><strong style={{ color: ({ black: '#c6cbd0', yellow: '#f1d77b', blue: '#91c8f0', red: '#f29785' } as Record<string, string>)[liveG.players[handoffPlayerIndex]?.color] ?? '#e5d3a5' }}>{liveG.players[handoffPlayerIndex]?.name ?? currentPlayer.name}</strong><p>准备好后，点击下方按钮开始本回合。</p><button className="btn btn-gold" onClick={() => setHandoffPlayerIndex(null)}>我已接手，开始游戏</button></div></div>}
-    {!gameAssetsReady && <div className="game-entry-loading" role="status" aria-live="polite"><div className="game-entry-loading-card"><span className="loading-mark">✦</span><b>正在准备游戏版图…</b><span className="loading-dots"><i /><i /><i /></span></div></div>}
+    {!gameAssetsReady && <div className="game-entry-loading" role="status" aria-live="polite"><div className="game-entry-loading-card"><span className="loading-mark">✦</span><b>正在准备游戏版图…</b><div className="loading-progress" role="progressbar" aria-label="游戏素材加载进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={gameAssetsProgress}><span style={{ width: `${gameAssetsProgress}%` }} /></div><small>{gameAssetsProgress}%</small></div></div>}
   </main>;
 }
 

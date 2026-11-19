@@ -104,5 +104,7 @@
 .loading-mark{font-size:38px;color:#d3b36d;animation:loading-breathe 1.15s ease-in-out infinite alternate}
 .loading-progress{width:100%;height:12px;padding:2px;overflow:hidden;border:1px solid rgba(211,179,109,.64);border-radius:999px;background:rgba(0,0,0,.28);box-shadow:0 0 16px rgba(211,179,109,.12) inset}
 .loading-progress>span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#9c7139,#e8ce8d 55%,#d6b46b);box-shadow:0 0 10px rgba(232,206,141,.45);transition:width .18s ease-out}
+.joining-progress>span{width:36%;animation:joining-progress 1.25s ease-in-out infinite alternate}
+@keyframes joining-progress{from{transform:translateX(0)}to{transform:translateX(175%)}}
 @keyframes loading-breathe{to{transform:scale(1.15);opacity:.55}}
 @media(max-width:520px){.room-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.room-tile{padding:8px;gap:5px}.room-tile-heading>b{font-size:10px}.room-tile-players{font-size:9px}.room-tile-meta{font-size:8px}.room-tile-actions .btn{padding:4px 5px;font-size:9px}}

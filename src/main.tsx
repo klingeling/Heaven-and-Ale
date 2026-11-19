@@ -203,7 +203,7 @@ function makeLocalGame(_bots: number[], names: string[], expansionEnabled = fals
 }
 function App() {
   const initialGameNumber = /^\/game\/(\d+)\/?$/.exec(window.location.pathname)?.[1] || '';
-  const [screen, setScreen] = useState<'home' | 'new-game' | 'waiting' | 'game' | 'route-loading'>(() => initialGameNumber ? 'route-loading' : window.location.pathname.replace(/\/$/, '') === '/new_game' ? 'new-game' : 'home');
+  const [screen, setScreen] = useState<'home' | 'new-game' | 'waiting' | 'game' | 'route-loading' | 'joining-room'>(() => initialGameNumber ? 'route-loading' : window.location.pathname.replace(/\/$/, '') === '/new_game' ? 'new-game' : 'home');
   const [routeGameNumber, setRouteGameNumber] = useState(initialGameNumber);
   const [routeResolvedMatchID, setRouteResolvedMatchID] = useState('');
   const [routeRoomPreview, setRouteRoomPreview] = useState<RouteRoomPreview | null>(null);
@@ -549,7 +549,9 @@ function App() {
     if (supabaseConfigured && !authSession?.access_token) { setRoomInfo('请先使用 Google 或 GitHub 登录，再加入房间。'); return; }
     if (supabaseConfigured && !authUser?.user_metadata?.username) { setProfileInfo('请先设置唯一用户名。'); setProfileModalOpen(true); return; }
     const name = (supabaseConfigured ? userDisplayName(authUser) : playerName).trim() || '玩家1'; setSavedName(name);
+    const sourceScreen = screen;
     setBusy(true); setRoomInfo('正在加入房间…');
+    setScreen('joining-room');
     try {
       const lobby = new LobbyClient({ server: serverUrl });
       const existing = knownSession || accountRooms.find(room => room.matchID === code) || loadOnlineSession(code);
@@ -581,7 +583,8 @@ function App() {
     } catch (e) {
       const message = e instanceof Error ? e.message : '请检查房间号和服务器地址。';
       setRoomInfo(`加入失败：${message}`);
-      if (screen === 'route-loading') { routeJoinStartedRef.current = ''; setRouteError(message); }
+      setScreen(sourceScreen);
+      if (sourceScreen === 'route-loading') { routeJoinStartedRef.current = ''; setRouteError(message); }
     }
     setBusy(false);
   };
@@ -850,6 +853,7 @@ function App() {
       </div>
     </section>{accountOverlays}</main>;
   }
+  if (screen === 'joining-room') return <main className="landing route-loading-page"><div className="landing-image" /><section className="route-loading-card"><div className="card-kicker">HEAVEN & ALE · 对局</div><h1>正在进入房间…</h1><p>正在确认席位并同步房间状态。</p><div className="loading-progress joining-progress" role="progressbar" aria-label="正在进入房间"><span /></div></section>{accountOverlays}</main>;
   if (screen === 'game' && client && snapshot) return <GameView client={client} state={snapshot} replayStorageKey={localConfig ? 'local-' + localConfig.sessionId : roomCode ? 'online-' + roomCode : 'history-' + snapshot._stateID} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} ownPlayerSeat={onlineRoom ? Number(onlineRoom.playerID) : undefined} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig || replayMode} localHandoffEnabled={!!localConfig && localConfig.playerCount > localConfig.botSeats.length} isRoomHost={!!onlineRoom?.host} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
   if (screen === 'waiting' && onlineRoom) {
     const players = roomMatch?.players || [];

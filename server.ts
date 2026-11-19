@@ -94,6 +94,10 @@ class SupabaseMatchStorage {
 // Let boardgame.io choose its normal in-memory/flat-file adapter when Supabase
 // is not configured; only provide a custom adapter for the persistent setup.
 const server = Server({ games: [HeavenAle], origins: allowedOrigins, apiOrigins: allowedOrigins, db: configured ? new SupabaseMatchStorage() as any : undefined });
+server.app.on('error', (error: any, ctx: any) => {
+  // Keep credentials out of logs while making unexpected API failures traceable in Render.
+  console.error('[api-error]', ctx?.method || 'UNKNOWN', ctx?.path || 'UNKNOWN', error?.stack || error?.message || error);
+});
 
 async function getUser(ctx: any) {
   const token = String(ctx.get('authorization') || '').replace(/^Bearer\s+/i, '');

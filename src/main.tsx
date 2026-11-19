@@ -470,23 +470,31 @@ function App() {
     const botSeats = Array.from({ length: onlineBotCount }, (_, i) => count - onlineBotCount + i);
     let createdMatchID: string | null = null;
     let hostCredentials: string | null = null;
+    let creationStage = '连接游戏服务器';
     setBusy(true); setRoomInfo('正在创建房间…');
     try {
       const lobby = new LobbyClient({ server: serverUrl });
+      creationStage = '创建房间';
       const created = await lobby.createMatch(gameName, { numPlayers: count, setupData: { expansionEnabled: onlineExpansionEnabled } });
       createdMatchID = created.matchID;
+      creationStage = '加入房主席位';
       const host = await lobby.joinMatch(gameName, created.matchID, { playerID: '0', playerName: name });
       hostCredentials = host.playerCredentials;
       const botCredentials: OnlineRoomSession['botCredentials'] = [];
+      creationStage = '加入机器人席位';
       for (const seat of botSeats) {
         const joinedBot = await lobby.joinMatch(gameName, created.matchID, { playerID: String(seat), playerName: `机器人${seat + 1}`, data: { isBot: true, botDifficulty: onlineBotDifficulty } });
         botCredentials.push({ playerID: String(joinedBot.playerID), credentials: joinedBot.playerCredentials });
       }
       const inviteToken = roomIsPrivate ? crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', '') : undefined;
-      if (supabaseConfigured) await accountRequest('/account/rooms/register', { method: 'POST', body: JSON.stringify({
-        matchID: created.matchID, playerID: String(host.playerID), credentials: host.playerCredentials, botCredentials,
-        room: { isPrivate: roomIsPrivate, password: roomPassword.trim() || null, inviteToken, numPlayers: count, expansionEnabled: onlineExpansionEnabled, playerName: name },
-      }) });
+      if (supabaseConfigured) {
+        creationStage = '保存房间和账号信息';
+        await accountRequest('/account/rooms/register', { method: 'POST', body: JSON.stringify({
+          matchID: created.matchID, playerID: String(host.playerID), credentials: host.playerCredentials, botCredentials,
+          room: { isPrivate: roomIsPrivate, password: roomPassword.trim() || null, inviteToken, numPlayers: count, expansionEnabled: onlineExpansionEnabled, playerName: name },
+        }) });
+      }
+      creationStage = '进入等候室';
       const match = await lobby.getMatch(gameName, created.matchID);
       await enterWaitingRoom({ matchID: created.matchID, playerID: String(host.playerID), credentials: host.playerCredentials, playerName: name, numPlayers: count, host: true, botSeats, botDifficulty: onlineBotDifficulty, expansionEnabled: onlineExpansionEnabled, botCredentials, inviteToken, isPrivate: roomIsPrivate, status: 'waiting' }, match);
       setRoomPassword('');
@@ -495,7 +503,7 @@ function App() {
       if (createdMatchID && hostCredentials) {
         try { await fetch(`${serverUrl.replace(/\/$/, '')}/admin/matches/${encodeURIComponent(createdMatchID)}/delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerID: '0', credentials: hostCredentials }) }); } catch { /* room cleanup is best-effort */ }
       }
-      setRoomInfo(`创建失败：${e instanceof Error ? e.message : '请检查网络和房间服务。'}`);
+      setRoomInfo(`创建失败（${creationStage}）：${e instanceof Error ? e.message : '请检查网络和房间服务。'}`);
     }
     setBusy(false);
   };

@@ -86,4 +86,9 @@
 .room-tile .room-message{font-size:10px}
 .confirm-modal>label{display:grid;gap:6px;color:#dfd2b2;font-size:12px;margin:15px 0}
 .confirm-modal>label input{width:100%;box-sizing:border-box;padding:10px;background:rgba(0,0,0,.2);border:1px solid rgba(217,194,148,.32);color:#f2e6ca;border-radius:3px}
+.route-loading-page{min-height:100vh;display:grid;place-items:center}
+.route-loading-card{position:relative;width:min(520px,calc(100% - 32px));padding:30px;background:rgba(23,34,29,.92);border:1px solid rgba(217,194,148,.28);text-align:center;box-shadow:0 18px 60px #0006}
+.route-loading-card h1{margin:8px 0 12px;color:#ead9b3;font:600 24px var(--serif)}
+.route-loading-card p{color:#c9c1ad;font-size:13px}
+.route-loading-actions{display:flex;justify-content:center;gap:9px;margin-top:18px}
 @media(max-width:520px){.room-card-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.room-tile{padding:8px;gap:5px}.room-tile-heading>b{font-size:10px}.room-tile-players{font-size:9px}.room-tile-meta{font-size:8px}.room-tile-actions .btn{padding:4px 5px;font-size:9px}}

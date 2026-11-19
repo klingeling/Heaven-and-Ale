@@ -159,10 +159,10 @@ const storeMember = async (matchID: string, userID: string, member: any, ownerID
 server.router.post('/games/:name/:id/join', async (ctx, next) => {
   if (configured) {
     const room = await getRoom(ctx.params.id);
-    if (room?.is_private || room?.password_hash) {
+    if (room?.is_private) {
       const user = await getUser(ctx);
       const token = String(ctx.get('x-room-access') || '');
-      if (!validateAccessToken(token, user.id, ctx.params.id)) ctx.throw(403, 'This room requires its invitation link or password.');
+      if (!validateAccessToken(token, user.id, ctx.params.id)) ctx.throw(403, '无法验证这局对局的访问权限，请通过对局链接重新进入。');
     }
   }
   await next();
@@ -175,15 +175,15 @@ server.router.post('/account/rooms/register', koaBody(), async ctx => {
   if (!matchID || !playerID || !credentials) ctx.throw(400, 'Missing room seat details.');
   const metadata = await authorizedSeat(ctx, matchID, playerID, credentials);
   const isNew = body.room !== undefined;
+  let gameNumber: number | undefined;
   if (isNew) {
     const room = body.room || {};
     const privacy = room.isPrivate === true;
-    const passHash = room.password ? hash(`${matchID}:${room.password}`) : null;
-    const inviteHash = room.inviteToken ? hash(`${matchID}:${room.inviteToken}`) : null;
-    await supabaseRequest('/rest/v1/online_rooms', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({
-      match_id: matchID, owner_user_id: user.id, status: 'waiting', is_private: privacy, password_hash: passHash, invite_hash: inviteHash, invite_ciphertext: room.inviteToken ? encrypt(room.inviteToken) : null,
+    const savedRooms = await supabaseRequest('/rest/v1/online_rooms', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({
+      match_id: matchID, owner_user_id: user.id, status: 'waiting', is_private: privacy,
       max_players: Number(room.numPlayers || metadata.players.length), expansion_enabled: room.expansionEnabled === true,
-    }) });
+    }) }) as any[];
+    gameNumber = Number(savedRooms?.[0]?.game_number);
     await storeMember(matchID, user.id, { playerID, playerName: room.playerName || metadata.players[Number(playerID)]?.name, credentials }, user.id);
     for (const bot of Array.isArray(body.botCredentials) ? body.botCredentials : []) {
       await authorizedSeat(ctx, matchID, String(bot.playerID), String(bot.credentials));
@@ -195,20 +195,15 @@ server.router.post('/account/rooms/register', koaBody(), async ctx => {
     const playerName = metadata.players[Number(playerID)]?.name || String(body.playerName || '玩家');
     await storeMember(matchID, user.id, { playerID, playerName, credentials }, room.owner_user_id);
   }
-  ctx.body = { ok: true };
+  ctx.body = { ok: true, gameNumber };
 });
 
 server.router.post('/account/rooms/authorize', koaBody(), async ctx => {
   const user = await getUser(ctx);
-  const { matchID, password = '', inviteToken = '' } = ctx.request.body || {};
+  const { matchID } = ctx.request.body || {};
   const room = await getRoom(String(matchID || ''));
   if (!room) ctx.throw(404, 'Room not found.');
-  const memberRows = await supabaseRequest(queryPath('online_room_members', { select: 'user_id', match_id: eq(matchID), user_id: eq(user.id) })) as any[];
-  const alreadyMember = memberRows.length > 0;
-  if (!alreadyMember) {
-    if (room.is_private && (!inviteToken || hash(`${matchID}:${inviteToken}`) !== room.invite_hash)) ctx.throw(403, '请使用房主发来的邀请链接。');
-    if (room.password_hash && hash(`${matchID}:${String(password)}`) !== room.password_hash) ctx.throw(403, '房间密码不正确。');
-  }
+  // Invite-only rooms are hidden from the public lobby; possession of the direct game URL is the invitation.
   ctx.body = { accessToken: accessToken(user.id, matchID), room: { matchID, isPrivate: room.is_private, status: room.status, maxPlayers: room.max_players, expansionEnabled: room.expansion_enabled } };
 });
 
@@ -219,7 +214,7 @@ server.router.post('/account/rooms/joined', koaBody(), async ctx => {
   const room = await getRoom(String(matchID));
   if (!room) ctx.throw(404, 'Room not found.');
   await storeMember(String(matchID), user.id, { playerID, credentials, playerName: metadata.players[Number(playerID)]?.name }, room.owner_user_id);
-  ctx.body = { ok: true };
+  ctx.body = { ok: true, gameNumber: Number(room.game_number) };
 });
 
 server.router.get('/account/rooms', async ctx => {
@@ -240,12 +235,12 @@ server.router.get('/account/rooms', async ctx => {
     const ended = !!fetched.metadata.gameover || fetched.state?.G?.phase === 'finished';
     const status = ended ? 'finished' : started ? 'playing' : 'waiting';
     if (status !== room.status) await supabaseRequest(queryPath('online_rooms', { match_id: eq(matchID) }), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status, updated_at: new Date().toISOString() }) });
-    rooms.push({ matchID, status, isPrivate: room.is_private, maxPlayers: room.max_players, expansionEnabled: room.expansion_enabled,
+    rooms.push({ matchID, gameNumber: Number(room.game_number), status, isPrivate: room.is_private, maxPlayers: room.max_players, expansionEnabled: room.expansion_enabled,
       owner: host, host, playerID: String(main.player_id), credentials: decrypt(main.credentials_ciphertext), playerName: main.player_name,
       numPlayers: room.max_players, players: players.map((player: any, i: number) => ({ id: Number(player.id ?? i), name: player.name, isConnected: player.isConnected, data: player.data })),
       botSeats: allRows.filter(member => member.is_bot).map(member => member.player_id),
       botCredentials: host ? allRows.filter(member => member.is_bot).map(member => ({ playerID: String(member.player_id), credentials: decrypt(member.credentials_ciphertext) })) : [],
-      inviteToken: host && room.invite_ciphertext ? decrypt(room.invite_ciphertext) : undefined, isPrivate: room.is_private, gameover: fetched.metadata.gameover, updatedAt: Date.parse(room.updated_at),
+      isPrivate: room.is_private, gameover: fetched.metadata.gameover, updatedAt: Date.parse(room.updated_at),
     });
   }
   ctx.body = rooms;
@@ -315,10 +310,19 @@ server.router.get('/account/public-rooms', async ctx => {
     const fetched = await (server.db as any).fetch(room.match_id, { metadata: true });
     if (!fetched?.metadata) continue;
     const players = Object.values(fetched.metadata.players || {}) as any[];
-    result.push({ matchID: room.match_id, players: players.map((player: any, i: number) => ({ id: Number(player.id ?? i), name: player.name, isConnected: player.isConnected, data: player.data })),
-      setupData: fetched.metadata.setupData, isPrivate: false, hasPassword: !!room.password_hash, status: room.status, updatedAt: Date.parse(room.updated_at) });
+    result.push({ matchID: room.match_id, gameNumber: Number(room.game_number), players: players.map((player: any, i: number) => ({ id: Number(player.id ?? i), name: player.name, isConnected: player.isConnected, data: player.data })),
+      setupData: fetched.metadata.setupData, isPrivate: false, status: room.status, updatedAt: Date.parse(room.updated_at) });
   }
   ctx.body = result;
+});
+
+server.router.get('/account/rooms/by-number/:number', async ctx => {
+  const gameNumber = Number(ctx.params.number);
+  if (!Number.isSafeInteger(gameNumber) || gameNumber < 1) ctx.throw(400, 'Invalid game number.');
+  const rows = await supabaseRequest(queryPath('online_rooms', { select: '*', game_number: eq(gameNumber) })) as any[];
+  const room = rows[0];
+  if (!room) ctx.throw(404, '对局不存在或已被删除。');
+  ctx.body = { gameNumber, matchID: room.match_id, status: room.status, isPrivate: room.is_private, maxPlayers: room.max_players };
 });
 
 server.router.post('/admin/matches/:id/delete', koaBody(), async ctx => {

@@ -287,10 +287,12 @@
 .game-layout.bot-thinking>.right-rail{pointer-events:none;opacity:.62}
 @media(min-width:1280px){.far-right-rail .player-roster{align-items:stretch}.far-right-rail .player-info-unit{width:100%}}
 @media(max-width:780px){.far-right-rail .player-roster{align-items:stretch}.far-right-rail .player-info-unit{width:100%}}
-.far-right-rail .player-card{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;align-items:center;column-gap:7px;row-gap:2px;padding:9px 8px}
-.far-right-rail .player-card>.avatar{grid-column:1;grid-row:1}
-.far-right-rail .player-card>.player-name{grid-column:2;grid-row:1;min-width:0}
-.far-right-rail .player-card>.money{grid-column:1 / -1;grid-row:2;justify-self:end;margin-left:0;white-space:nowrap}
+.far-right-rail .player-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;column-gap:7px;row-gap:2px;padding:9px 8px}
+.far-right-rail .player-card>.avatar{grid-column:1;grid-row:1 / 3}
+.far-right-rail .player-card>.player-name{display:contents}
+.far-right-rail .player-card .player-name-score{grid-column:2 / 4;grid-row:1;min-width:0}
+.far-right-rail .player-card .player-name>small{grid-column:2;grid-row:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.far-right-rail .player-card>.money{grid-column:3;grid-row:2;justify-self:end;margin-left:0;white-space:nowrap}
 .tile-flight{position:fixed;z-index:30;pointer-events:none;transform-origin:center center;filter:drop-shadow(0 3px 6px #000b);will-change:transform}
 .tile-flight.flight-meeple,.tile-flight.flight-resource-marker,.tile-flight.flight-brewer-marker{transform:none}
 .tile-flight.is-moving{animation:tile-flight-motion 980ms cubic-bezier(.2,.72,.22,1) both;animation-delay:var(--flight-delay,0ms)}

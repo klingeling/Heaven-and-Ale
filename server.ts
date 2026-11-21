@@ -355,6 +355,36 @@ server.router.get('/account/public-history', async ctx => {
   ctx.body = history;
 });
 
+server.router.post('/account/rooms/replay', koaBody(), async ctx => {
+  const user = await getUser(ctx);
+  const body = ctx.request.body || {};
+  const matchID = String(body.matchID || ''), playerID = String(body.playerID || ''), credentials = String(body.credentials || '');
+  const frame = body.frame;
+  if (!matchID || !playerID || !credentials || !frame || typeof frame.id !== 'string' || !frame.state || !Array.isArray(frame.state.players)) ctx.throw(400, 'Invalid replay frame.');
+  const serialized = JSON.stringify(frame);
+  if (serialized.length > 100_000 || !Number.isInteger(frame.logStart) || !Number.isInteger(frame.logEnd) || frame.logEnd < frame.logStart || !Number.isInteger(frame.playerIndex)) ctx.throw(413, 'Replay frame is too large or malformed.');
+  const members = await supabaseRequest(queryPath('online_room_members', { select: 'user_id', match_id: eq(matchID), user_id: eq(user.id) })) as any[];
+  if (!members.length) ctx.throw(403, 'You are not a member of this room.');
+  const metadata = await authorizedSeat(ctx, matchID, playerID, credentials);
+  const currentFrames = Array.isArray(metadata.publicReplayFrames) ? metadata.publicReplayFrames : [];
+  const byId = new Map<string, any>(currentFrames.map((existing: any) => [String(existing.id), existing]));
+  byId.set(frame.id, frame);
+  metadata.publicReplayFrames = [...byId.values()].sort((a, b) => a.logEnd - b.logEnd || a.logStart - b.logStart).slice(-500);
+  await (server.db as any).setMetadata(matchID, metadata);
+  ctx.body = { ok: true };
+});
+
+server.router.get('/account/public-history/:number/replay', async ctx => {
+  const gameNumber = Number(ctx.params.number);
+  if (!Number.isSafeInteger(gameNumber) || gameNumber < 1) ctx.throw(400, 'Invalid game number.');
+  const rows = await supabaseRequest(queryPath('online_rooms', { select: 'match_id,is_private,status', game_number: eq(gameNumber), is_private: 'eq.false' })) as any[];
+  const room = rows[0];
+  if (!room || room.status !== 'finished') ctx.throw(404, 'Replay is not available for this public game.');
+  const fetched = await (server.db as any).fetch(room.match_id, { metadata: true, state: true });
+  if (fetched?.state?.G?.phase !== 'finished') ctx.throw(404, 'Replay is not available for this public game.');
+  ctx.body = { frames: Array.isArray(fetched.metadata?.publicReplayFrames) ? fetched.metadata.publicReplayFrames : [] };
+});
+
 server.router.get('/account/rooms/by-number/:number', async ctx => {
   const gameNumber = Number(ctx.params.number);
   if (!Number.isSafeInteger(gameNumber) || gameNumber < 1) ctx.throw(400, 'Invalid game number.');

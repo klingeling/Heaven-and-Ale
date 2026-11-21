@@ -15,7 +15,7 @@ import './readable-text.css';
 type AnyClient = ReturnType<typeof Client>;
 type MotionPoint = { x: number; y: number };
 type MovementTrail = { id: string; kind: PieceFlight['kind']; playerIndex?: number; resourceKey?: Resource; pathPoints: MotionPoint[]; durationMs: number; started: boolean; scrollX: number; scrollY: number };
-type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean };
+type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; targetStorageExtensionIndex?: number; targetUnlockStorageIndex?: number; targetBreweryIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean };
 type ReplayViewState = Pick<AleState, 'players' | 'round' | 'maxRounds' | 'resources' | 'monks' | 'scores' | 'barrels' | 'phase' | 'setupStage' | 'pending' | 'startPlayer' | 'firstTurnAfterSetup' | 'startChoice' | 'expansionEnabled' | 'expansion' | 'playerOrder' | 'firstRoundOrder' | 'logCycle'>;
 type ReplayFrame = { id: string; logStart: number; logEnd: number; logLines?: string[]; playerIndex: number; turn?: number; state: ReplayViewState };
 const replayFrameLimit = 500;
@@ -218,6 +218,7 @@ function App() {
   const [authReady, setAuthReady] = useState(!supabaseConfigured);
   const [client, setClient] = useState<AnyClient | null>(null);
   const [snapshot, setSnapshot] = useState<any>(null);
+  const [replayFrameSeed, setReplayFrameSeed] = useState<ReplayFrame[]>([]);
   const [playerCount, setPlayerCount] = useState(2);
   const [botSeats, setBotSeats] = useState<number[]>([]);
   const [playerNames, setPlayerNames] = useState(['玩家1', '玩家2', '玩家3', '玩家4']);
@@ -380,7 +381,7 @@ function App() {
     }
     const config = { sessionId: crypto.randomUUID(), playerCount: count, botSeats: selectedBots, botDifficulty: difficulty, playerNames: selectedNames, playerColors: selectedColors, expansionEnabled };
     const c = Client({ game: makeLocalGame(selectedBots, selectedNames, expansionEnabled, selectedColors), numPlayers: count, debug: false });
-    c.start(); setLocalConfig(config); setClient(c); setSnapshot((c as any).store.getState()); setReplayMode(false); setScreen('game'); setActiveBotSeats(selectedBots); setBotSeats(selectedBots); setPlayerNames(selectedNames);
+    c.start(); setLocalConfig(config); setClient(c); setSnapshot((c as any).store.getState()); setReplayFrameSeed([]); setReplayMode(false); setScreen('game'); setActiveBotSeats(selectedBots); setBotSeats(selectedBots); setPlayerNames(selectedNames);
     setRoomInfo(selectedBots.length === count ? `机器人对局 · 全部由${difficulty === 'expert' ? '专家' : '普通'}机器人操控` : selectedBots.length ? `本地混合对局 · ${difficulty === 'expert' ? '专家' : '普通'}机器人 ×${selectedBots.length}` : '本地热座 · 轮流操作');
   };
   const setSeatMode = (seat: number, robot: boolean) => {
@@ -400,7 +401,7 @@ function App() {
     c.store.dispatch({ type: 'SYNC', state: saved.state, initialState: saved.initialState, log: saved.log, clientOnly: true });
     c.start();
     setLocalConfig({ sessionId: saved.sessionId || crypto.randomUUID(), playerCount: saved.playerCount, botSeats: saved.botSeats, botDifficulty: saved.botDifficulty, playerNames: saved.playerNames, playerColors: saved.playerColors, expansionEnabled: saved.expansionEnabled });
-    setClient(c); setSnapshot((c as any).store.getState()); setReplayMode(false); setActiveBotSeats(saved.botSeats); setPlayerNames(saved.playerNames); setLocalPlayerColors(saved.playerColors || [...playerColors]); setBotDifficulty(saved.botDifficulty); setScreen('game');
+    setClient(c); setSnapshot((c as any).store.getState()); setReplayFrameSeed([]); setReplayMode(false); setActiveBotSeats(saved.botSeats); setPlayerNames(saved.playerNames); setLocalPlayerColors(saved.playerColors || [...playerColors]); setBotDifficulty(saved.botDifficulty); setScreen('game');
     setRoomInfo(saved.botSeats.length === saved.playerCount ? `已恢复 · 全部由${saved.botDifficulty === 'expert' ? '专家' : '普通'}机器人操控` : saved.botSeats.length ? `已恢复本地混合对局 · ${saved.botDifficulty === 'expert' ? '专家' : '普通'}机器人 × ${saved.botSeats.length}` : '已恢复本地热座对局');
   };
   useEffect(() => { if (savedLocal && !initialGameNumber) resumeLocal(); }, []);
@@ -435,7 +436,7 @@ function App() {
     const c = Client({ game: makeLocalGame(entry.botSeats, entry.playerNames, entry.expansionEnabled), numPlayers: entry.playerCount, debug: false });
     c.store.dispatch({ type: 'SYNC', state: entry.state, initialState: entry.initialState, log: [], clientOnly: true });
     c.start();
-    setClient(c); setSnapshot((c as any).store.getState()); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setReplayMode(true); setActiveBotSeats([]); setScreen('game');
+    setClient(c); setSnapshot((c as any).store.getState()); setReplayFrameSeed([]); setLocalConfig(null); setOnlineRoom(null); setRoomMatch(null); setReplayMode(true); setActiveBotSeats([]); setScreen('game');
     setRoomInfo(`终局复盘 · ${entry.mode === 'online' ? `线上房间 ${entry.roomCode}` : '本地对局'}`);
   };
   const recordFinishedMatchRef = React.useRef(recordFinishedMatch);
@@ -479,26 +480,35 @@ function App() {
     if (window.location.pathname !== route) window.history.pushState({}, '', route);
     setScreen('waiting'); setRoomInfo('');
   };
-  const connectOnlineGame = (session: OnlineRoomSession, match: any) => {
+  const connectOnlineGame = (session: OnlineRoomSession, match: any, replayFrames: ReplayFrame[] = []) => {
     const makeClient = (playerID: string, credentials: string) => Client({ game: HeavenAle, multiplayer: SocketIO({ server: serverUrl }), matchID: session.matchID, playerID, credentials, debug: false });
     const main = makeClient(session.playerID, session.credentials);
     const bots = session.botCredentials.map(({ playerID, credentials }) => ({ seat: Number(playerID), client: makeClient(playerID, credentials) }));
     main.start(); bots.forEach(({ client: botClient }) => botClient.start());
     const room = matchAsRoom(match), votes = readAbandonVotes(room, session.botSeats);
-    setLocalConfig(null); setClient(main); setSnapshot((main as any).store.getState()); setRemoteBotClients(bots); setActiveBotSeats([]); setBotSeats(session.botSeats); setReplayMode(false);
+    setLocalConfig(null); setClient(main); setSnapshot((main as any).store.getState()); setReplayFrameSeed(replayFrames); setRemoteBotClients(bots); setActiveBotSeats([]); setBotSeats(session.botSeats); setReplayMode(false);
     setOnlineRoom(session); setRoomMatch(room); setAbandonVoteState({ votes, passed: votes.length >= requiredAbandonVotes(session.numPlayers, session.botSeats) });
     setRoomInfo(`线上对局 · ${session.gameNumber}`); setScreen('game');
     const route = `/game/${session.gameNumber}`;
     if (window.location.pathname !== route) window.history.pushState({}, '', route);
   };
-  const connectOnlineSpectator = (matchID: string, gameNumber: string, match: any) => {
+  const connectOnlineSpectator = (matchID: string, gameNumber: string, match: any, replayFrames: ReplayFrame[] = []) => {
     const observer = Client({ game: HeavenAle, multiplayer: SocketIO({ server: serverUrl }), matchID, playerID: null as any, debug: false });
     observer.start();
     const room = matchAsRoom(match);
     const bots = room.players.filter(player => player.data?.isBot === true).map(player => Number(player.id));
     setLocalConfig(null); setClient(observer); setSnapshot((observer as any).store.getState()); setRemoteBotClients([]);
-    setActiveBotSeats([]); setBotSeats(bots); setReplayMode(false); setOnlineRoom(null); setRoomMatch(room); setRoomCode(matchID);
+    setActiveBotSeats([]); setBotSeats(bots); setReplayMode(false); setReplayFrameSeed(replayFrames); setOnlineRoom(null); setRoomMatch(room); setRoomCode(matchID);
     setRouteGameNumber(gameNumber); setRoomInfo(`旁观对局 · ${gameNumber}`); setScreen('game');
+  };
+  const loadPublicReplayFrames = async (gameNumber?: number | string): Promise<ReplayFrame[]> => {
+    if (!gameNumber) return [];
+    try {
+      const response = await fetch(`${serverUrl.replace(/\/$/, '')}/account/public-history/${encodeURIComponent(gameNumber)}/replay`);
+      if (!response.ok) return [];
+      const payload = await response.json();
+      return Array.isArray(payload.frames) ? payload.frames as ReplayFrame[] : [];
+    } catch { return []; }
   };
   const createRoom = async () => {
     if (supabaseConfigured && !authSession?.access_token) { setRoomInfo('请先使用 Google 或 GitHub 登录，再创建线上房间。'); return; }
@@ -566,7 +576,7 @@ function App() {
         const botSeats = match.players.filter(player => player.data?.isBot === true).map(player => Number(player.id));
         const botDifficulty = (match.players.find(player => player.data?.isBot === true)?.data?.botDifficulty as BotDifficulty | undefined) || existing.botDifficulty;
         session = { ...existing, playerName: name, botSeats, botDifficulty, expansionEnabled: match.setupData?.expansionEnabled === true, isPrivate: existing.isPrivate };
-        if (session.status === 'playing' || session.status === 'finished') connectOnlineGame(session, match);
+        if (session.status === 'playing' || session.status === 'finished') connectOnlineGame(session, match, session.status === 'finished' ? await loadPublicReplayFrames(session.gameNumber) : []);
         else await enterWaitingRoom(session, match);
       } else {
         let accessToken: string | undefined;
@@ -628,11 +638,13 @@ function App() {
           setRoomCode(routeResolvedMatchID);
           if (occupied >= routeRoomPreview.maxPlayers || routeRoomPreview.status !== 'waiting') {
             const match = await new LobbyClient({ server: serverUrl }).getMatch(gameName, routeResolvedMatchID);
-            if (!cancelled) connectOnlineGame(session, match);
+            const replayFrames = routeRoomPreview.status === 'finished' ? await loadPublicReplayFrames(routeGameNumber) : [];
+            if (!cancelled) connectOnlineGame(session, match, replayFrames);
           } else await joinRoom(routeResolvedMatchID, session);
         } else {
           const match = await new LobbyClient({ server: serverUrl }).getMatch(gameName, routeResolvedMatchID);
-          if (!cancelled) connectOnlineSpectator(routeResolvedMatchID, routeGameNumber, match);
+          const replayFrames = routeRoomPreview.status === 'finished' ? await loadPublicReplayFrames(routeGameNumber) : [];
+          if (!cancelled) connectOnlineSpectator(routeResolvedMatchID, routeGameNumber, match, replayFrames);
         }
       } catch (error) {
         if (!cancelled) setRouteError(error instanceof Error ? error.message : '无法打开这局游戏。');
@@ -756,6 +768,15 @@ function App() {
       });
     } catch { /* search telemetry is best-effort; it must not interrupt the bot */ }
   };
+  const publishReplayFrame = (frame: ReplayFrame) => {
+    if (!onlineRoom || !authSession?.access_token) return;
+    const isOwnTurn = Number(onlineRoom.playerID) === frame.playerIndex;
+    const isHostedBotTurn = onlineRoom.host && onlineRoom.botSeats.includes(frame.playerIndex);
+    if (!isOwnTurn && !isHostedBotTurn) return;
+    void accountRequest('/account/rooms/replay', { method: 'POST', body: JSON.stringify({
+      matchID: onlineRoom.matchID, playerID: onlineRoom.playerID, credentials: onlineRoom.credentials, frame,
+    }) }).catch(() => {});
+  };
   useEffect(() => {
     if ((screen !== 'waiting' && screen !== 'game') || !onlineRoom) return;
     let cancelled = false;
@@ -864,7 +885,7 @@ function App() {
     </section>{accountOverlays}</main>;
   }
   if (screen === 'joining-room') return <main className="landing route-loading-page"><div className="landing-image" /><section className="route-loading-card"><div className="card-kicker">HEAVEN & ALE · 对局</div><h1>正在进入房间…</h1><p>正在确认席位并同步房间状态。</p><div className="loading-progress joining-progress" role="progressbar" aria-label="正在进入房间"><span /></div></section>{accountOverlays}</main>;
-  if (screen === 'game' && client && snapshot?.G) return <GameView client={client} state={snapshot} replayStorageKey={localConfig ? 'local-' + localConfig.sessionId : roomCode ? 'online-' + roomCode : 'history-' + snapshot._stateID} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} ownPlayerSeat={onlineRoom ? Number(onlineRoom.playerID) : undefined} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig || replayMode} localHandoffEnabled={!!localConfig && localConfig.playerCount > localConfig.botSeats.length} isRoomHost={!!onlineRoom?.host} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
+  if (screen === 'game' && client && snapshot?.G) return <GameView client={client} state={snapshot} replayStorageKey={localConfig ? 'local-' + localConfig.sessionId : roomCode ? 'online-' + roomCode : 'history-' + snapshot._stateID} replayFrameSeed={replayFrameSeed} onPublishReplayFrame={onlineRoom ? publishReplayFrame : undefined} roomInfo={roomInfo} roomCode={roomCode} botSeats={localConfig ? activeBotSeats : onlineRoom?.botSeats || []} remoteBotClients={remoteBotClients} ownPlayerSeat={onlineRoom ? Number(onlineRoom.playerID) : undefined} playerName={onlineRoom?.playerName} onlinePlayerNames={roomMatch ? Array.from({ length: roomMatch.players.length }, (_, i) => roomMatch.players.find(player => Number(player.id) === i)?.name || `玩家${i + 1}`) : undefined} remoteBotDifficulty={onlineRoom?.botDifficulty || 'normal'} botDifficulty={localConfig ? botDifficulty : onlineRoom?.botDifficulty || 'normal'} isLocal={!!localConfig || replayMode} localHandoffEnabled={!!localConfig && localConfig.playerCount > localConfig.botSeats.length} isRoomHost={!!onlineRoom?.host} onlineVoteState={abandonVoteState} sharedBotSearches={(roomMatch?.players.map(player => player.data?.botSearch).filter(Boolean) || []) as BotSearchUpdate[]} onBotSearchUpdate={publishBotSearch} onVoteToAbandon={voteToAbandon} onLeaveAbandoned={leaveAbandonedRoom} onExit={returnHome} onAbandon={abandonLocalGame} />;
   if (screen === 'game') return <main className="landing route-loading-page"><div className="landing-image" /><section className="route-loading-card"><div className="loading-mark">✦</div><h1>正在连接对局…</h1><p>{roomInfo || '正在同步棋盘状态，请稍候。'}</p><div className="loading-progress joining-progress" role="progressbar" aria-label="正在连接对局"><span /></div></section></main>;
   if (screen === 'waiting' && onlineRoom) {
     const players = roomMatch?.players || [];
@@ -903,7 +924,7 @@ function App() {
   </main>;
 }
 
-function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeats, remoteBotClients, ownPlayerSeat, playerName, onlinePlayerNames, remoteBotDifficulty, botDifficulty, isLocal, localHandoffEnabled, isRoomHost, onlineVoteState, sharedBotSearches, onBotSearchUpdate, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; replayStorageKey: string; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; ownPlayerSeat?: number; playerName?: string; onlinePlayerNames?: string[]; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; localHandoffEnabled: boolean; isRoomHost: boolean; onlineVoteState: { votes: number[]; passed: boolean }; sharedBotSearches: BotSearchUpdate[]; onBotSearchUpdate: (status: BotSearchUpdate | null) => void; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
+function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishReplayFrame, roomInfo, roomCode, botSeats, remoteBotClients, ownPlayerSeat, playerName, onlinePlayerNames, remoteBotDifficulty, botDifficulty, isLocal, localHandoffEnabled, isRoomHost, onlineVoteState, sharedBotSearches, onBotSearchUpdate, onVoteToAbandon, onLeaveAbandoned, onExit, onAbandon }: { client: AnyClient; state: any; replayStorageKey: string; replayFrameSeed: ReplayFrame[]; onPublishReplayFrame?: (frame: ReplayFrame) => void; roomInfo: string; roomCode: string; botSeats: number[]; remoteBotClients: { seat: number; client: AnyClient }[]; ownPlayerSeat?: number; playerName?: string; onlinePlayerNames?: string[]; remoteBotDifficulty: BotDifficulty; botDifficulty: BotDifficulty; isLocal: boolean; localHandoffEnabled: boolean; isRoomHost: boolean; onlineVoteState: { votes: number[]; passed: boolean }; sharedBotSearches: BotSearchUpdate[]; onBotSearchUpdate: (status: BotSearchUpdate | null) => void; onVoteToAbandon: () => void; onLeaveAbandoned: () => void; onExit: () => void; onAbandon: () => void }) {
   const rawG = state.G as AleState;
   const liveG = onlinePlayerNames ? { ...rawG, players: rawG.players.map((player, i) => onlinePlayerNames[i] ? { ...player, name: onlinePlayerNames[i] } : player) } as AleState : rawG;
   const [gameAssetsReady, setGameAssetsReady] = useState(false);
@@ -951,8 +972,20 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
     }))).then(() => { if (active) { setGameAssetsProgress(100); setGameAssetsReady(true); } });
     return () => { active = false; };
   }, []);
-  const [replayFrames, setReplayFrames] = useState<ReplayFrame[]>(() => readReplayFrames(replayStorageKey));
+  const [replayFrames, setReplayFrames] = useState<ReplayFrame[]>(() => {
+    const merged = new Map(readReplayFrames(replayStorageKey).map(frame => [frame.id, frame]));
+    replayFrameSeed.forEach(frame => merged.set(frame.id, frame));
+    return [...merged.values()].sort((a, b) => a.logEnd - b.logEnd || a.logStart - b.logStart).slice(-replayFrameLimit);
+  });
   const replayFramesRef = React.useRef(replayFrames);
+  useEffect(() => {
+    if (!replayFrameSeed.length) return;
+    const merged = new Map(replayFramesRef.current.map(frame => [frame.id, frame]));
+    replayFrameSeed.forEach(frame => merged.set(frame.id, frame));
+    const next = persistReplayFrames(replayStorageKey, [...merged.values()].sort((a, b) => a.logEnd - b.logEnd || a.logStart - b.logStart).slice(-replayFrameLimit));
+    replayFramesRef.current = next;
+    setReplayFrames(next);
+  }, [replayStorageKey, replayFrameSeed]);
   const [selectedReplayId, setSelectedReplayId] = useState<string | null>(null);
   const selectedReplayFrame = replayFrames.find(frame => frame.id === selectedReplayId) ?? null;
   const isReplaying = !!selectedReplayFrame;
@@ -975,6 +1008,7 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
     const next = persistReplayFrames(replayStorageKey, [...replayFramesRef.current.filter(item => item.id !== frame.id), frame].slice(-replayFrameLimit));
     replayFramesRef.current = next;
     setReplayFrames(next);
+    onPublishReplayFrame?.(frame);
   };
   const replayTrackerRef = React.useRef<{ stateID: number; phase: AleState['phase']; confirmationKind: AleState['confirmationKind']; undoSnapshot: string | null; actionLogStart: number } | null>(null);
   useEffect(() => {
@@ -1647,6 +1681,9 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
         storage: [...board.storage], temporaryStorage: board.temporaryStorage,
         cartPosition: board.cartPosition, cartBarrels: board.cartBarrels,
         breweryDeliveries: [...board.breweryDeliveries], deliveredBarrels: board.deliveredBarrels,
+        storageExtensions: board.storageExtensions.map(extension => extension ? { ...extension } : null),
+        hutStoreTiles: [...board.hutStoreTiles], hutStoreUsed: [...board.hutStoreUsed],
+        breweryUpgradeTiles: [...board.breweryUpgradeTiles],
       })),
     } : null;
     const selectedIndex = isReplaying ? replayFrames.findIndex(frame => frame.id === selectedReplayId) : -1;
@@ -1662,6 +1699,9 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
         storage: [...board.storage], temporaryStorage: board.temporaryStorage,
         cartPosition: board.cartPosition, cartBarrels: board.cartBarrels,
         breweryDeliveries: [...board.breweryDeliveries], deliveredBarrels: board.deliveredBarrels,
+        storageExtensions: board.storageExtensions.map(extension => extension ? { ...extension } : null),
+        hutStoreTiles: [...board.hutStoreTiles], hutStoreUsed: [...board.hutStoreUsed],
+        breweryUpgradeTiles: [...board.breweryUpgradeTiles],
       })),
     } : null;
     const previous = isReplaying ? replayPrevious : expansionSnapshotRef.current;
@@ -1791,6 +1831,49 @@ function GameView({ client, state, replayStorageKey, roomInfo, roomCode, botSeat
         if (delivered <= 0) return;
         const from = routeRect(playerIndex, old.cartPosition, 28), to = routeRect(playerIndex, 9 + breweryIndex, 30);
         if (from && to) for (let barrel = 0; barrel < delivered; barrel++) startPieceFlightFromRects('expansion-cargo', from, to, { cargoKind: 'barrel', playerIndex, targetRouteIndex: 9 + breweryIndex, delayMs: barrel * 90 });
+      });
+
+      // When a hut reward is resolved, fly its tile to the reminder/unlock spot
+      // it created on the transport board. One-shot rewards are represented by
+      // their cargo/cart animations above and have no persistent tile target.
+      now.hutStoreUsed.forEach((used: boolean, hutSlot: number) => {
+        if (!used || old.hutStoreUsed[hutSlot]) return;
+        const storeId = now.hutStoreTiles[hutSlot];
+        if (!storeId) return;
+        const hutIndexes = gardenCells.flatMap((cell, index) => cell.hut ? [index] : []);
+        const hutIndex = hutIndexes[hutSlot];
+        const hut = document.querySelector<HTMLElement>(`.garden-board[data-player-board-index="${playerIndex}"] [data-garden-index="${hutIndex}"]`);
+        const hutRect = hut?.getBoundingClientRect();
+        if (!hutRect || hutRect.width < 2) return;
+        const sourceSize = Math.min(hutRect.width * .8, hutRect.height * .8);
+        const source = centeredRect(hutRect, sourceSize, sourceSize);
+        let targetElement: HTMLElement | null = null;
+        if (storeId === 1 || storeId === 2) {
+          const extensionIndex = now.storageExtensions.findIndex((extension: StorageExtension, index: number) => {
+            const prior = old.storageExtensions[index];
+            return extension && (!prior || prior.kind !== extension.kind || (prior.kind === 'effect' && extension.kind === 'effect' && prior.tileId !== extension.tileId));
+          });
+          const extension = extensionIndex >= 0 ? now.storageExtensions[extensionIndex] : null;
+          if (extension?.kind === 'effect') {
+            targetElement = document.querySelector<HTMLElement>(`.expansion-transport-board[data-transport-player-index="${playerIndex}"] [data-storage-extension-index="${extensionIndex}"]`);
+          } else if (extension?.kind === 'storage') {
+            const storageIndex = UNLOCKABLE_STORAGE_SLOTS[extensionIndex];
+            targetElement = document.querySelector<HTMLElement>(`.expansion-transport-board[data-transport-player-index="${playerIndex}"] [data-expansion-storage-index="${storageIndex}"]`);
+          }
+        } else if (storeId === 3 || storeId === 4) {
+          const breweryIndex = now.breweryUpgradeTiles.findIndex((tileId: number | null, index: number) => tileId && tileId !== old.breweryUpgradeTiles[index]);
+          if (breweryIndex >= 0) targetElement = document.querySelector<HTMLElement>(`.expansion-transport-board[data-transport-player-index="${playerIndex}"] [data-brewery-upgrade-index="${breweryIndex}"]`);
+        }
+        const targetRect = targetElement?.getBoundingClientRect();
+        if (targetRect && targetRect.width > 1) {
+          const targetData = targetElement?.dataset;
+          startPieceFlightFromRects('store-card', source, centeredRect(targetRect, targetRect.width, targetRect.height), {
+            storeId, sourceIndex: hutIndex, playerIndex,
+            targetStorageExtensionIndex: targetData?.storageExtensionIndex === undefined ? undefined : Number(targetData.storageExtensionIndex),
+            targetUnlockStorageIndex: targetData?.expansionStorageIndex === undefined ? undefined : Number(targetData.expansionStorageIndex),
+            targetBreweryIndex: targetData?.breweryUpgradeIndex === undefined ? undefined : Number(targetData.breweryUpgradeIndex),
+          });
+        }
       });
     }
   }, [state._stateID, viewingPlayerIndex, selectedReplayId, isReplaying]);
@@ -2378,9 +2461,9 @@ function ExpansionTransportBoard({ board, color, playerIndex, pieceFlights, stor
   return <div className="expansion-transport-wrap">
     <div className="expansion-transport-board" data-transport-color={color} data-transport-player-index={playerIndex}>
       <img className="expansion-transport-art" src={`/Images/board_ex_${color}.jpg`} alt={`${color} 玩家运输板`} />
-      {board.storage.map((cargo, index) => { const pos = slots[index]; if (!pos || !board.storageUnlocked?.[index]) return null; const pendingCargo = cargoPlacement?.pending?.find(item => item.slot === index)?.kind; const selectable = !!cargoPlacement && cargo === null && !pendingCargo && cargoPlacement.slots.includes(index); const hiddenByFlight = storageFlightHides(index); const unlockableSlot = !(BUILT_IN_STORAGE_SLOTS as readonly number[]).includes(index); return <button type="button" data-expansion-storage-index={index} className={`transport-storage-marker ${selectable ? 'selectable' : ''} ${pendingCargo ? 'pending' : ''}`} key={index} disabled={!selectable} onClick={() => cargoPlacement?.onSelectSlot(index)} aria-label={cargo ? `已解锁存储格，内有${cargo === 'barrel' ? '桶装酒' : '干草'}` : `将${cargoPlacement?.kind === 'barrel' ? '桶装酒' : '干草'}放入存储格`} title={cargo ? `已解锁存储格 · ${cargo === 'barrel' ? '桶装酒' : '干草'}` : selectable ? '点击放入选中的货物' : undefined} style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }}>{unlockableSlot && <img className={`transport-storage-unlock-art ${cargo || pendingCargo ? 'occupied' : ''}`} src={`/Images/storage_slot_marker_${color}.png`} alt="已解锁存储格" />}{cargo && !hiddenByFlight ? cargoGlyph(cargo) : pendingCargo ? cargoGlyph(pendingCargo) : null}</button>; })}
-      {board.storageExtensions?.map((extension: StorageExtension, extensionIndex) => { if (extension?.kind !== 'effect') return null; const slot = UNLOCKABLE_STORAGE_SLOTS[extensionIndex], pos = slots[slot]; if (!pos) return null; return <img key={`persistent-effect-${extensionIndex}`} className="transport-extension-effect" style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }} src={`/Images/store_${extension.tileId}.png`} alt="" title={`持续效果：${storeEffectLabels[extension.tileId]}`} />; })}
-      {board.breweryUpgradeTiles?.map((tileId, breweryIndex) => { if (!tileId) return null; const pos = breweryIndex === 0 ? [53, 64.5] : [53, 48.5]; return <img key={`brewery-upgrade-${breweryIndex}`} className="transport-brewery-upgrade" style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }} src={`/Images/store_${tileId}.png`} alt={`覆盖第 ${breweryIndex + 1} 酒馆计分`} title={`第 ${breweryIndex + 1} 酒馆每桶 ${board.breweryScores[breweryIndex]} 分`} />; })}
+      {board.storage.map((cargo, index) => { const pos = slots[index]; if (!pos || !board.storageUnlocked?.[index]) return null; const pendingCargo = cargoPlacement?.pending?.find(item => item.slot === index)?.kind; const selectable = !!cargoPlacement && cargo === null && !pendingCargo && cargoPlacement.slots.includes(index); const hiddenByFlight = storageFlightHides(index); const unlockableSlot = !(BUILT_IN_STORAGE_SLOTS as readonly number[]).includes(index); const unlockFlying = pieceFlights.some(flight => flight.kind === 'store-card' && flight.playerIndex === playerIndex && flight.targetUnlockStorageIndex === index); return <button type="button" data-expansion-storage-index={index} className={`transport-storage-marker ${selectable ? 'selectable' : ''} ${pendingCargo ? 'pending' : ''}`} key={index} disabled={!selectable} onClick={() => cargoPlacement?.onSelectSlot(index)} aria-label={cargo ? `已解锁存储格，内有${cargo === 'barrel' ? '桶装酒' : '干草'}` : `将${cargoPlacement?.kind === 'barrel' ? '桶装酒' : '干草'}放入存储格`} title={cargo ? `已解锁存储格 · ${cargo === 'barrel' ? '桶装酒' : '干草'}` : selectable ? '点击放入选中的货物' : undefined} style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }}>{unlockableSlot && !unlockFlying && <img className={`transport-storage-unlock-art ${cargo || pendingCargo ? 'occupied' : ''}`} src={`/Images/storage_slot_marker_${color}.png`} alt="已解锁存储格" />}{cargo && !hiddenByFlight ? cargoGlyph(cargo) : pendingCargo ? cargoGlyph(pendingCargo) : null}</button>; })}
+      {board.storageExtensions?.map((extension: StorageExtension, extensionIndex) => { if (extension?.kind !== 'effect' || pieceFlights.some(flight => flight.kind === 'store-card' && flight.playerIndex === playerIndex && flight.targetStorageExtensionIndex === extensionIndex)) return null; const slot = UNLOCKABLE_STORAGE_SLOTS[extensionIndex], pos = slots[slot]; if (!pos) return null; return <img key={`persistent-effect-${extensionIndex}`} data-storage-extension-index={extensionIndex} className="transport-extension-effect" style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }} src={`/Images/store_${extension.tileId}.png`} alt="" title={`持续效果：${storeEffectLabels[extension.tileId]}`} />; })}
+      {board.breweryUpgradeTiles?.map((tileId, breweryIndex) => { if (!tileId || pieceFlights.some(flight => flight.kind === 'store-card' && flight.playerIndex === playerIndex && flight.targetBreweryIndex === breweryIndex)) return null; const pos = breweryIndex === 0 ? [53, 64.5] : [53, 48.5]; return <img key={`brewery-upgrade-${breweryIndex}`} data-brewery-upgrade-index={breweryIndex} className="transport-brewery-upgrade" style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }} src={`/Images/store_${tileId}.png`} alt={`覆盖第 ${breweryIndex + 1} 酒馆计分`} title={`第 ${breweryIndex + 1} 酒馆每桶 ${board.breweryScores[breweryIndex]} 分`} />; })}
       {cargoPlacement?.temporaryAvailable ? <button type="button" data-temporary-storage-marker className="transport-temp-marker selectable" title="临时存储格：放入需支付4钱币" aria-label="放入临时存储格并支付4钱币" style={{ left: "88.9%", top: "12.0%", right: "auto", transform: "translate(-50%, -50%)" }} onClick={() => cargoPlacement.onSelectSlot(-1)}><i /></button> : <div data-temporary-storage-marker className="transport-temp-marker" title="临时存储格：每次放入货物支付4钱币" style={{ left: "88.9%", top: "12.0%", right: "auto", transform: "translate(-50%, -50%)" }}>{board.temporaryStorage && !storageFlightHides(-1, true) ? cargoGlyph(board.temporaryStorage) : cargoPlacement?.pending?.find(item => item.slot === -1) ? cargoGlyph(cargoPlacement.pending.find(item => item.slot === -1)!.kind) : <i />}</div>}
       {!cartFlying && <div className="transport-cart-marker" style={{ left: `${cartLocation.left}%`, top: `${cartLocation.top}%` }} title={`马车位于${cartLocation.name}${board.cartBarrels > 0 ? `，装有 ${board.cartBarrels} 桶桶装酒` : '，未装载桶装酒'}`} aria-label={`马车位于${cartLocation.name}，装有${board.cartBarrels}桶桶装酒`}>{board.cartBarrels > 0 && <span className="cart-cargo-stack">{Array.from({ length: board.cartBarrels }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="桶装酒" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="马车" /></div>}
       {board.breweryDeliveries.map((count, breweryIndex) => {

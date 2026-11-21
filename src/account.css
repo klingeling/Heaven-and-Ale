@@ -72,6 +72,8 @@
 .home-list-heading h2{margin:0;color:#ead9b3;font:600 15px var(--serif)}
 .home-list-heading button{border:1px solid rgba(217,194,148,.28);background:rgba(255,255,255,.035);color:#d9c294;border-radius:4px;padding:5px 10px;font-size:10px;cursor:pointer}
 .room-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,245px),1fr));gap:9px}
+.room-list-subheading{grid-column:1/-1;padding:9px 0 2px;border-bottom:1px solid rgba(217,194,148,.18)}
+.room-list-subheading h3{margin:0;color:#d9c18f;font:600 13px var(--serif);letter-spacing:.04em}
 .room-tile{min-width:0;padding:10px 11px;background:rgba(23,34,29,.76);border:1px solid rgba(217,194,148,.2);border-radius:6px;display:grid;gap:6px}
 .room-tile-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
 .room-tile-heading>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ead9b3;font-size:12px}

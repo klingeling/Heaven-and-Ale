@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual, creat
 import { Server } from 'boardgame.io/server';
 import koaBody from 'koa-body';
 import type { Server as BgioServer } from 'boardgame.io';
-import { HeavenAle } from './src/game';
+import { HeavenAle, scoreBreakdown } from './src/game';
 
 const allowedOrigins = (process.env.CLIENT_ORIGINS || 'http://localhost:5173')
   .split(',').map(origin => origin.trim()).filter(Boolean);
@@ -234,7 +234,10 @@ server.router.get('/account/rooms', async ctx => {
     const started = room.status !== 'waiting';
     const ended = !!fetched.metadata.gameover || fetched.state?.G?.phase === 'finished';
     const status = ended ? 'finished' : started ? 'playing' : 'waiting';
-    if (status !== room.status) await supabaseRequest(queryPath('online_rooms', { match_id: eq(matchID) }), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status, updated_at: new Date().toISOString() }) });
+    if (status !== room.status) {
+      await supabaseRequest(queryPath('online_rooms', { match_id: eq(matchID) }), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status, updated_at: new Date().toISOString() }) });
+      if (status === 'finished') publicHistoryCache = null;
+    }
     rooms.push({ matchID, gameNumber: Number(room.game_number), status, isPrivate: room.is_private, maxPlayers: room.max_players, expansionEnabled: room.expansion_enabled,
       owner: host, host, playerID: String(main.player_id), credentials: decrypt(main.credentials_ciphertext), playerName: main.player_name,
       numPlayers: room.max_players, players: players.map((player: any, i: number) => ({ id: Number(player.id ?? i), name: player.name, isConnected: player.isConnected, data: player.data })),
@@ -300,6 +303,7 @@ server.router.post('/account/rooms/status', koaBody(), async ctx => {
   const rows = await supabaseRequest(queryPath('online_room_members', { select: 'user_id', match_id: eq(matchID), user_id: eq(user.id) })) as any[];
   if (!rows.length) ctx.throw(403, 'You are not a member of this room.');
   await supabaseRequest(queryPath('online_rooms', { match_id: eq(matchID) }), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status, updated_at: new Date().toISOString() }) });
+  if (status === 'finished') publicHistoryCache = null;
   ctx.body = { ok: true };
 });
 
@@ -314,6 +318,41 @@ server.router.get('/account/public-rooms', async ctx => {
       setupData: fetched.metadata.setupData, isPrivate: false, status: room.status, updatedAt: Date.parse(room.updated_at) });
   }
   ctx.body = result;
+});
+
+let publicHistoryCache: { expiresAt: number; rows: any[] } | null = null;
+server.router.get('/account/public-history', async ctx => {
+  if (publicHistoryCache && publicHistoryCache.expiresAt > Date.now()) {
+    ctx.body = publicHistoryCache.rows;
+    return;
+  }
+  const rooms = await supabaseRequest(queryPath('online_rooms', {
+    select: 'match_id,game_number,updated_at,created_at,expansion_enabled',
+    is_private: 'eq.false', status: 'eq.finished', order: 'updated_at.desc', limit: '1000',
+  })) as any[];
+  const history: any[] = [];
+  for (let start = 0; start < rooms.length; start += 25) {
+    const batch = await Promise.all(rooms.slice(start, start + 25).map(async room => {
+      const fetched = await (server.db as any).fetch(room.match_id, { metadata: true, state: true });
+      const game = fetched?.state?.G;
+      if (!game || game.phase !== 'finished' || !Array.isArray(game.players)) return null;
+      const players = game.players.map((player: any, index: number) => ({
+        name: fetched.metadata?.players?.[index]?.name || player.name || `玩家${index + 1}`,
+        score: scoreBreakdown(player, game.expansionEnabled ? game.expansion?.players?.[index] : undefined).total,
+      }));
+      const winners = fetched.metadata?.gameover?.winners || (fetched.metadata?.gameover?.winner !== undefined ? [fetched.metadata.gameover.winner] : []);
+      const winnerIndexes = winners.length ? winners.map(Number) : players.flatMap((player: any, index: number) => player.score === Math.max(...players.map((item: any) => item.score)) ? [index] : []);
+      return {
+        gameNumber: Number(room.game_number), matchID: room.match_id,
+        playedAt: Date.parse(room.updated_at || room.created_at), expansionEnabled: room.expansion_enabled === true,
+        playerNames: players.map((player: any) => player.name), scores: players.map((player: any) => player.score),
+        winnerNames: winnerIndexes.map((index: number) => players[index]?.name).filter(Boolean),
+      };
+    }));
+    history.push(...batch.filter(Boolean));
+  }
+  publicHistoryCache = { expiresAt: Date.now() + 60_000, rows: history };
+  ctx.body = history;
 });
 
 server.router.get('/account/rooms/by-number/:number', async ctx => {
@@ -342,6 +381,7 @@ server.router.post('/admin/matches/:id/delete', koaBody(), async ctx => {
   const authorized = await server.auth.authenticateCredentials({ playerID: '0', credentials, metadata });
   if (!authorized) ctx.throw(403, 'Invalid room owner credentials.');
   await (server.db as any).wipe(matchID);
+  publicHistoryCache = null;
   ctx.status = 204;
 });
 

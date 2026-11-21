@@ -124,6 +124,7 @@ function GameOverScoreModal({ game, gameover, winnerNames, onExit, onClose }: { 
 const localSaveKey = 'heaven-and-ale-local-session-v1';
 type LocalSave = { version: 1; sessionId?: string; playerCount: number; botSeats: number[]; botDifficulty: BotDifficulty; playerNames: string[]; playerColors?: string[]; expansionEnabled?: boolean; state: any; initialState: any; log: any[]; savedAt: number; botNames?: string[] };
 type MatchHistoryEntry = { id: string; mode: 'local' | 'online'; roomCode?: string; playedAt: number; playerCount: number; playerNames: string[]; botSeats: number[]; expansionEnabled: boolean; scores: number[]; winnerNames: string[]; state: any; initialState: any };
+type PublicHistoryEntry = { gameNumber: number; matchID: string; playedAt: number; expansionEnabled: boolean; playerNames: string[]; scores: number[]; winnerNames: string[] };
 const matchHistoryKey = 'heaven-and-ale-match-history-v1';
 function readMatchHistory(): MatchHistoryEntry[] {
   try {
@@ -248,6 +249,7 @@ function App() {
   const [roomCode, setRoomCode] = useState('');
   const [roomInfo, setRoomInfo] = useState('');
   const [openRooms, setOpenRooms] = useState<LobbyRoom[]>([]);
+  const [publicHistory, setPublicHistory] = useState<PublicHistoryEntry[]>([]);
   const [abandonVoteState, setAbandonVoteState] = useState<{ votes: number[]; passed: boolean }>({ votes: [], passed: false });
   const abandonDeleteStartedRef = React.useRef(false);
   const [roomDeleteTarget, setRoomDeleteTarget] = useState<OnlineRoomSession | null>(null);
@@ -445,6 +447,10 @@ function App() {
         if (!publicResponse.ok) throw new Error(`服务器返回 ${publicResponse.status}`);
         const rooms = await publicResponse.json() as LobbyRoom[];
         setOpenRooms(rooms);
+        try {
+          const historyResponse = await fetch(`${serverUrl.replace(/\/$/, '')}/account/public-history`);
+          if (historyResponse.ok) setPublicHistory(await historyResponse.json() as PublicHistoryEntry[]);
+        } catch { /* keep the last site history list while the API wakes up */ }
         if (authSession?.access_token) {
           const joined = await accountRequest('/account/rooms');
           setAccountRooms(joined as OnlineRoomSession[]);
@@ -642,6 +648,11 @@ function App() {
     }
     setRouteError(''); setRoomCode(routeResolvedMatchID);
     await joinRoom(routeResolvedMatchID);
+  };
+  const openPublicHistory = (gameNumber: number) => {
+    const route = `/game/${gameNumber}`;
+    if (window.location.pathname !== route) window.history.pushState({}, '', route);
+    setRouteGameNumber(String(gameNumber)); setRouteResolvedMatchID(''); setRouteRoomPreview(null); setRouteMembershipChecked(false); setRouteError(''); routeJoinStartedRef.current = ''; setScreen('route-loading');
   };
   const startOnlineGame = async () => {
     if (!onlineRoom || !roomMatch || roomMatch.players.length < onlineRoom.numPlayers || roomMatch.players.some(p => !p.name)) return;
@@ -862,6 +873,7 @@ function App() {
     return <main className="landing waiting-screen"><div className="landing-image" /><header className="topbar"><div className="brand-mark"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><b>天堂与美酒 · 等候室</b><div className="account-area">{authUser && <button className="btn btn-outline account-user-button" onClick={() => { setUsernameDraft(userDisplayName(authUser)); setProfileInfo(''); setProfileModalOpen(true); }}>{userDisplayName(authUser)} · 账户</button>}</div></header><section className="waiting-room setup-card"><div className="card-kicker">对局 #{onlineRoom.gameNumber}</div><h1>{full ? '所有玩家已到齐' : '等待玩家加入'}</h1><p>房主开始游戏前，所有席位需要有人就座。分享此对局链接即可邀请朋友加入。</p><div className="expansion-room-badge">{onlineRoom.expansionEnabled ? '扩展规则已启用' : '基础规则'}{onlineRoom.isPrivate ? ' · 仅限邀请' : ''}</div><div className="waiting-username-note">本局显示用户名：<b>{onlineRoom.playerName}</b><button className="text-button" onClick={() => { setUsernameDraft(userDisplayName(authUser)); setProfileInfo(''); setProfileModalOpen(true); }}>修改账户用户名</button></div><label>对局链接<div className="share-link-row"><input readOnly value={shareUrl} /><button className="btn btn-light" onClick={() => { void navigator.clipboard?.writeText(shareUrl); setRoomInfo('已复制对局链接。'); }}>复制</button></div></label><div className="waiting-seats">{Array.from({ length: onlineRoom.numPlayers }, (_, seat) => { const occupant = players.find(p => Number(p.id) === seat); return <div className={`waiting-seat ${occupant?.name ? 'is-filled' : ''}`} key={seat}><span className="seat-number">{seat + 1}</span><div><b>{occupant?.name || '等待玩家…'}</b><small>{onlineRoom.botSeats.includes(seat) ? '机器人席位' : occupant?.isConnected ? '已连接' : occupant?.name ? '已加入' : '空位'}</small></div>{occupant?.name && <i />}</div>; })}</div>{roomInfo && <div className="room-message">{roomInfo}</div>}<div className="waiting-actions"><button className="btn btn-outline" onClick={leaveWaitingRoom}>离开房间</button><button className="btn btn-gold" disabled={!full || busy} onClick={startOnlineGame}>{busy ? '连接中…' : full ? '进入对局' : '等待所有玩家加入'}</button></div><small className="waiting-footnote">房间状态与玩家席位会保存在账号中，可在其他设备重新进入</small></section>{accountOverlays}</main>;
   }
   const myOnlineRooms = supabaseConfigured ? accountRooms : readOnlineSessions();
+  const localHistory = matchHistory.filter(entry => entry.mode === 'local');
   const otherOpenRooms = openRooms.filter(room => room.status === 'waiting' && !room.isPrivate && room.players?.some(player => player.name) && !myOnlineRooms.some(mine => mine.matchID === room.matchID));
   return <main className="landing">
     <div className="landing-image" />
@@ -873,11 +885,12 @@ function App() {
       <div className="hero-copy">作为一座古老修道院的负责人，你努力为人们提供最好的啤酒！<br />Harvest beer ingredients and master the art of monastic brewcrafting.</div>
       {screen === 'new-game' ? <div className="new-game-page"><div className="new-game-heading"><button className="btn btn-outline" onClick={() => { window.history.replaceState({}, '', '/'); setScreen('home'); }}>← 返回主页</button><div><div className="card-kicker">NEW TABLE</div><h2>创建游戏</h2><p>选择本地热座或线上多人游戏。</p></div></div><div className="new-game-setup">{gameSetupCards}</div></div> : <div className="home-page-content">
         <button className="btn btn-gold home-create-game" onClick={openNewGame}>创建游戏 <span>↗</span></button>
-        {(myOnlineRooms.length + matchHistory.length + otherOpenRooms.length > 0) && <section className="home-rooms-section"><div className="home-list-heading"><h2>对局</h2><button onClick={() => void refreshRooms()}>刷新</button></div><div className="room-card-grid">
-          {myOnlineRooms.length > 0 && <div className="room-list-subheading"><h3>我的对局</h3></div>}
+        {(myOnlineRooms.length + localHistory.length + publicHistory.length + otherOpenRooms.length > 0) && <section className="home-rooms-section"><div className="home-list-heading"><h2>对局</h2><button onClick={() => void refreshRooms()}>刷新</button></div><div className="room-card-grid">
+          {(myOnlineRooms.length + localHistory.length > 0) && <div className="room-list-subheading"><h3>我的对局</h3></div>}
           {myOnlineRooms.map(session => { const room = openRooms.find(item => item.matchID === session.matchID); const players = session.players || room?.players || []; const occupied = players.filter(player => player.name).length; const status = session.status || 'waiting'; const statusLabels = { waiting: '等待中', playing: '进行中', finished: '已结束' }; const actionLabel = status === 'finished' ? '查看终局' : status === 'playing' ? '继续对局' : '进入房间'; return <article className="room-tile" key={`mine-${session.matchID}`}><div className="room-tile-heading"><b>对局 #{session.gameNumber}</b><span className={`room-status room-status-${status}`}>{statusLabels[status as keyof typeof statusLabels] || '等待中'}</span></div><div className="room-tile-players">{players.filter(player => player.name).map(player => player.name).join(' · ') || session.playerName}</div><div className="room-tile-meta"><span>{status === 'finished' ? '对局结束' : `${occupied}/${session.numPlayers} 人`}</span>{session.isPrivate && <span>仅限邀请</span>}{session.expansionEnabled && <span>扩展</span>}</div><div className="room-tile-actions"><button className="btn btn-light" disabled={busy} onClick={() => { setRoomCode(session.matchID); void joinRoom(session.matchID); }}>{actionLabel}</button>{session.host && status === 'waiting' && <button className="btn btn-outline" onClick={() => void copyRoomInvite(session)}>{copiedInviteRoomID === session.matchID ? '已复制' : '邀请'}</button>}{session.host && <button className="btn btn-danger" disabled={busy} onClick={() => setRoomDeleteTarget(session)}>删除</button>}</div></article>; })}
-          {matchHistory.length > 0 && <div className="room-list-subheading"><h3>历史对局</h3></div>}
-          {matchHistory.map(entry => <article className="room-tile" key={`history-${entry.id}`}><div className="room-tile-heading"><b>{entry.playerNames.join(' · ')}</b><span className="room-status room-status-finished">已结束</span></div><div className="room-tile-players">冠军：{entry.winnerNames.join('、')} · {entry.scores.map((score, index) => `${entry.playerNames[index]} ${score}分`).join(' · ')}</div><div className="room-tile-meta"><span>{new Date(entry.playedAt).toLocaleDateString()}</span><span>{entry.mode === 'online' ? `线上 ${entry.roomCode}` : '本地'}</span><span>{entry.expansionEnabled ? '扩展' : '基础'}</span></div><div className="room-tile-actions"><button className="btn btn-light" onClick={() => openMatchHistory(entry)}>终局复盘</button></div></article>)}
+          {localHistory.map(entry => <article className="room-tile" key={`history-${entry.id}`}><div className="room-tile-heading"><b>{entry.playerNames.join(' · ')}</b><span className="room-status room-status-finished">已结束</span></div><div className="room-tile-players">冠军：{entry.winnerNames.join('、')} · {entry.scores.map((score, index) => `${entry.playerNames[index]} ${score}分`).join(' · ')}</div><div className="room-tile-meta"><span>{new Date(entry.playedAt).toLocaleDateString()}</span><span>本地对局</span><span>{entry.expansionEnabled ? '扩展' : '基础'}</span></div><div className="room-tile-actions"><button className="btn btn-light" onClick={() => openMatchHistory(entry)}>终局复盘</button></div></article>)}
+          {publicHistory.length > 0 && <div className="room-list-subheading"><h3>全站历史对局</h3></div>}
+          {publicHistory.map(entry => <article className="room-tile" key={`public-history-${entry.matchID}`}><div className="room-tile-heading"><b>对局 #{entry.gameNumber} · {entry.playerNames.join(' · ')}</b><span className="room-status room-status-finished">已结束</span></div><div className="room-tile-players">冠军：{entry.winnerNames.join('、')} · {entry.scores.map((score, index) => `${entry.playerNames[index]} ${score}分`).join(' · ')}</div><div className="room-tile-meta"><span>{new Date(entry.playedAt).toLocaleDateString()}</span><span>{entry.expansionEnabled ? '扩展' : '基础'}</span></div><div className="room-tile-actions"><button className="btn btn-light" onClick={() => openPublicHistory(entry.gameNumber)}>旁观终局</button></div></article>)}
           {otherOpenRooms.length > 0 && <div className="room-list-subheading"><h3>等待加入</h3></div>}
           {otherOpenRooms.map(room => { const occupied = room.players.filter(player => player.name).length, cap = room.players.length || 0; return <article className="room-tile" key={`open-${room.matchID}`}><div className="room-tile-heading"><b>对局 #{room.gameNumber}</b><span className="room-status room-status-waiting">等待中</span></div><div className="room-tile-players">{room.players.filter(player => player.name).map(player => player.name).join(' · ')}</div><div className="room-tile-meta"><span>{occupied}/{cap} 人</span>{room.setupData?.expansionEnabled && <span>扩展</span>}</div><div className="room-tile-actions"><button className="btn btn-light" disabled={busy || occupied >= cap} onClick={() => { setRoomCode(room.matchID); void joinRoom(room.matchID); }}>加入</button></div></article>; })}
         </div></section>}

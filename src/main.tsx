@@ -2223,13 +2223,32 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
   const actionOrder = roundOrder;
   const ownOrderPosition = actionOrder.indexOf(ownPlayerIndex);
   const rosterOrder = ownOrderPosition < 0 ? actionOrder : [...actionOrder.slice(ownOrderPosition), ...actionOrder.slice(0, ownOrderPosition)];
-  const visibleReplayLogs = liveG.log.slice(0, 80).reverse();
+  // Game logs are stored newest-first; show the complete list in chronological
+  // order so the opening actions remain available for review.
+  const visibleReplayLogs = liveG.log.slice().reverse();
   const replayLogRanges = new Map<string, { start: number; end: number }>();
   let replayLogCursor = 0;
   for (const frame of [...replayFrames].reverse()) {
-    const lineCount = frame.logLines?.length ?? Math.max(0, frame.logEnd - frame.logStart);
-    if (lineCount > 0) replayLogRanges.set(frame.id, { start: replayLogCursor, end: replayLogCursor + lineCount });
-    replayLogCursor += lineCount;
+    const lines = frame.logLines;
+    if (lines?.length) {
+      // Logs are prepended as actions happen. Match each frame's exact lines in
+      // the full current log, skipping turn dividers and other non-action notes.
+      let foundAt = -1;
+      for (let start = replayLogCursor; start <= liveG.log.length - lines.length; start++) {
+        if (lines.every((line, index) => liveG.log[start + index] === line)) { foundAt = start; break; }
+      }
+      if (foundAt >= 0) {
+        replayLogRanges.set(frame.id, { start: foundAt, end: foundAt + lines.length });
+        replayLogCursor = foundAt + lines.length;
+        continue;
+      }
+    }
+    // Preserve click targets for legacy frames that did not store their lines.
+    const lineCount = Math.max(0, frame.logEnd - frame.logStart);
+    if (lineCount > 0 && replayLogCursor + lineCount <= liveG.log.length) {
+      replayLogRanges.set(frame.id, { start: replayLogCursor, end: replayLogCursor + lineCount });
+      replayLogCursor += lineCount;
+    }
   }
   const replayIndex = selectedReplayFrame ? replayFrames.findIndex(frame => frame.id === selectedReplayFrame.id) : -1;
   return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''} ${isReplaying ? 'is-replaying' : ''}`} onDragStartCapture={event => event.preventDefault()}>

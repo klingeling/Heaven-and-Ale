@@ -123,11 +123,10 @@
 .privileges .privilege button:disabled{opacity:.45;cursor:not-allowed}
 .right-rail .garden-board-reserved{position:relative;width:100%;min-width:0;box-sizing:border-box;padding-right:12.1%;margin-bottom:12px}
 .right-rail .garden-board-reserved .garden-board{width:100%;max-width:none;margin:0}
-.player-board-cache{position:relative;width:100%;min-width:0;grid-column:1/-1}
-.player-board-cache-item.is-visible{position:relative;width:100%;min-width:0}
-.player-board-cache-item.is-cached{position:absolute;top:0;left:-200vw;width:100%;min-width:0;visibility:hidden;pointer-events:none}
-@keyframes board-piece-handoff{from{opacity:.28}to{opacity:1}}
-.garden-board .tile-image,.garden-board .player-meeple,.garden-board .production-marker,.garden-board .brewer-marker-art,.expansion-transport-board .transport-cart-marker,.expansion-transport-board .transport-brewery-delivery,.expansion-transport-board .transport-storage-marker>.transport-cargo-token{animation:board-piece-handoff 140ms ease-out both}
+.player-board-cache{position:relative;display:grid;width:100%;min-width:0;grid-column:1/-1}
+.player-board-cache-item.is-visible,.player-board-cache-item.is-cached{grid-area:1/1;width:100%;min-width:0}
+.player-board-cache-item.is-visible{position:relative;z-index:1}
+.player-board-cache-item.is-cached{position:relative;z-index:0;visibility:hidden;pointer-events:none}
 .garden-board-pair{display:contents}
 .garden-board-pair.has-expansion{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2.27fr);align-items:stretch;width:100%;min-width:0;gap:0}
 .garden-board-pair.has-expansion .expansion-board-reserved{display:flex;align-items:stretch;min-width:0;padding-right:0}
@@ -300,6 +299,7 @@
 .far-right-rail .player-card>.money{grid-column:3;grid-row:2;justify-self:end;margin-left:0;white-space:nowrap}
 .tile-flight{position:fixed;z-index:30;pointer-events:none;transform-origin:center center;filter:drop-shadow(0 3px 6px #000b);will-change:transform}
 .tile-flight.is-delayed{visibility:hidden}
+.tile-flight.is-handoff{opacity:0;transition:opacity 140ms ease-out}
 .tile-flight.flight-meeple,.tile-flight.flight-resource-marker,.tile-flight.flight-brewer-marker{transform:none}
 .tile-flight.is-moving{animation:tile-flight-motion var(--flight-duration,980ms) cubic-bezier(.2,.72,.22,1) both;animation-delay:var(--flight-delay,0ms)}
 .tile-flight.path-moving{animation:none!important}

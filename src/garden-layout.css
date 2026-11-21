@@ -123,6 +123,11 @@
 .privileges .privilege button:disabled{opacity:.45;cursor:not-allowed}
 .right-rail .garden-board-reserved{position:relative;width:100%;min-width:0;box-sizing:border-box;padding-right:12.1%;margin-bottom:12px}
 .right-rail .garden-board-reserved .garden-board{width:100%;max-width:none;margin:0}
+.player-board-cache{position:relative;width:100%;min-width:0;grid-column:1/-1}
+.player-board-cache-item.is-visible{position:relative;width:100%;min-width:0}
+.player-board-cache-item.is-cached{position:absolute;top:0;left:-200vw;width:100%;min-width:0;visibility:hidden;pointer-events:none}
+@keyframes board-piece-handoff{from{opacity:.28}to{opacity:1}}
+.garden-board .tile-image,.garden-board .player-meeple,.garden-board .production-marker,.garden-board .brewer-marker-art,.expansion-transport-board .transport-cart-marker,.expansion-transport-board .transport-brewery-delivery,.expansion-transport-board .transport-storage-marker>.transport-cargo-token{animation:board-piece-handoff 140ms ease-out both}
 .garden-board-pair{display:contents}
 .garden-board-pair.has-expansion{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2.27fr);align-items:stretch;width:100%;min-width:0;gap:0}
 .garden-board-pair.has-expansion .expansion-board-reserved{display:flex;align-items:stretch;min-width:0;padding-right:0}
@@ -294,8 +299,9 @@
 .far-right-rail .player-card .player-name>small{grid-column:2;grid-row:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .far-right-rail .player-card>.money{grid-column:3;grid-row:2;justify-self:end;margin-left:0;white-space:nowrap}
 .tile-flight{position:fixed;z-index:30;pointer-events:none;transform-origin:center center;filter:drop-shadow(0 3px 6px #000b);will-change:transform}
+.tile-flight.is-delayed{visibility:hidden}
 .tile-flight.flight-meeple,.tile-flight.flight-resource-marker,.tile-flight.flight-brewer-marker{transform:none}
-.tile-flight.is-moving{animation:tile-flight-motion 980ms cubic-bezier(.2,.72,.22,1) both;animation-delay:var(--flight-delay,0ms)}
+.tile-flight.is-moving{animation:tile-flight-motion var(--flight-duration,980ms) cubic-bezier(.2,.72,.22,1) both;animation-delay:var(--flight-delay,0ms)}
 .tile-flight.path-moving{animation:none!important}
 .table-screen img{-webkit-user-drag:none;user-select:none}
 .movement-trail{position:fixed;inset:0;z-index:3;width:100vw;height:100vh;overflow:visible;pointer-events:none}

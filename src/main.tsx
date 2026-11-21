@@ -1413,11 +1413,13 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     const pathPoints = flight.pathPoints;
     setPieceFlights(current => [...current, flight]);
     if (!reversingStepUndo && pathPoints && pathPoints.length > 1) setMovementTrails(current => [...current, { id, kind, playerIndex: flight.playerIndex, resourceKey: flight.resourceKey, pathPoints, durationMs, started: false, scrollX: window.scrollX, scrollY: window.scrollY }]);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item));
+    const duration = flight.durationMs ?? 980, delay = data.delayMs ?? 0;
+    const beginFlight = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+      setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true, delayMs: 0 } : item));
       setMovementTrails(current => current.map(item => item.id === id ? { ...item, started: true } : item));
     }));
-    const duration = flight.durationMs ?? 980, delay = data.delayMs ?? 0, total = duration + delay + 140;
+    if (delay > 0) window.setTimeout(beginFlight, delay); else beginFlight();
+    const total = duration + delay + 140;
     window.setTimeout(() => setPieceFlights(current => current.filter(item => item.id !== id)), total);
     return total;
   };
@@ -1441,11 +1443,13 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     const pathPoints = flight.pathPoints;
     setPieceFlights(current => [...current, flight]);
     if (!reversingStepUndo && pathPoints && pathPoints.length > 1) setMovementTrails(current => [...current, { id, kind, playerIndex: flight.playerIndex, resourceKey: flight.resourceKey, pathPoints, durationMs, started: false, scrollX: window.scrollX, scrollY: window.scrollY }]);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true } : item));
+    const duration = flight.durationMs ?? 980, delay = data.delayMs ?? 0;
+    const beginFlight = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+      setPieceFlights(current => current.map(item => item.id === id ? { ...item, started: true, delayMs: 0 } : item));
       setMovementTrails(current => current.map(item => item.id === id ? { ...item, started: true } : item));
     }));
-    const duration = flight.durationMs ?? 980, delay = data.delayMs ?? 0, total = duration + delay + 140;
+    if (delay > 0) window.setTimeout(beginFlight, delay); else beginFlight();
+    const total = duration + delay + 140;
     window.setTimeout(() => setPieceFlights(current => current.filter(item => item.id !== id)), total);
     return total;
   };
@@ -1795,42 +1799,89 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
       }
 
       const loadedBarrels = Math.max(0, now.cartBarrels - old.cartBarrels);
+      const loadGateIndex = 1;
+      const approachMotion = loadedBarrels > 0 ? routeMotion(playerIndex, old.cartPosition, loadGateIndex, false) : null;
+      const loadGateTravelMs = approachMotion ? Math.max(760, (approachMotion.pathPoints.length - 1) * 165) : 0;
+      const loadAnimationMs = loadedBarrels > 0 ? 1100 : 0;
       if (loadedBarrels > 0) {
-        const cartTarget = routeRect(playerIndex, now.cartPosition, 38);
+        // Move the cargo to the first gate first. The cart waits there visually
+        // until both barrel and straw animations have finished.
+        const gateTarget = routeRect(playerIndex, loadGateIndex, 34);
         let animated = 0;
         old.storage.forEach((item: ExpansionCargo | null, index: number) => {
-          if (item !== 'barrel' || now.storage[index] !== null || !cartTarget || animated >= loadedBarrels) return;
+          if (item !== 'barrel' || now.storage[index] !== null || !gateTarget || animated >= loadedBarrels) return;
           const source = storageRect(playerIndex, index);
-          if (source) startPieceFlightFromRects('expansion-cargo', source, cartTarget, { cargoKind: 'barrel', playerIndex, sourceStorageIndex: index });
+          if (source) startPieceFlightFromRects('expansion-cargo', source, gateTarget, { cargoKind: 'barrel', playerIndex, sourceStorageIndex: index, delayMs: loadGateTravelMs });
           animated++;
         });
-        if (old.temporaryStorage === 'barrel' && now.temporaryStorage !== 'barrel' && cartTarget && animated < loadedBarrels) {
+        if (old.temporaryStorage === 'barrel' && now.temporaryStorage !== 'barrel' && gateTarget && animated < loadedBarrels) {
           const source = storageRect(playerIndex, -1, true);
-          if (source) startPieceFlightFromRects('expansion-cargo', source, cartTarget, { cargoKind: 'barrel', playerIndex, sourceTemporaryStorage: true });
+          if (source) startPieceFlightFromRects('expansion-cargo', source, gateTarget, { cargoKind: 'barrel', playerIndex, sourceTemporaryStorage: true, delayMs: loadGateTravelMs });
         }
         let strawAnimated = 0;
         old.storage.forEach((item: ExpansionCargo | null, index: number) => {
           if (item !== 'straw' || now.storage[index] !== null || strawAnimated >= loadedBarrels) return;
-          const source = storageRect(playerIndex, index), gateTarget = routeRect(playerIndex, 0, 28);
-          if (source && gateTarget) startPieceFlightFromRects('expansion-cargo', source, gateTarget, { cargoKind: 'straw', playerIndex, sourceStorageIndex: index });
+          const source = storageRect(playerIndex, index);
+          if (source && gateTarget) startPieceFlightFromRects('expansion-cargo', source, gateTarget, { cargoKind: 'straw', playerIndex, sourceStorageIndex: index, delayMs: loadGateTravelMs });
           strawAnimated++;
         });
         if (old.temporaryStorage === 'straw' && now.temporaryStorage !== 'straw' && strawAnimated < loadedBarrels) {
-          const source = storageRect(playerIndex, -1, true), gateTarget = routeRect(playerIndex, 0, 28);
-          if (source && gateTarget) startPieceFlightFromRects('expansion-cargo', source, gateTarget, { cargoKind: 'straw', playerIndex, sourceTemporaryStorage: true });
+          const source = storageRect(playerIndex, -1, true);
+          if (source && gateTarget) startPieceFlightFromRects('expansion-cargo', source, gateTarget, { cargoKind: 'straw', playerIndex, sourceTemporaryStorage: true, delayMs: loadGateTravelMs });
         }
       }
 
-      if (old.cartPosition !== now.cartPosition) {
-        const motion = routeMotion(playerIndex, old.cartPosition, now.cartPosition, reverseCartMotion);
-        if (motion) startPieceFlightFromRects('cart', motion.from, motion.to, { playerIndex, cargoCount: now.cartBarrels, targetRouteIndex: now.cartPosition, pathPoints: motion.pathPoints });
+      const cartMotion = old.cartPosition !== now.cartPosition
+        ? routeMotion(playerIndex, old.cartPosition, now.cartPosition, reverseCartMotion)
+        : null;
+      let routeSteps = cartMotion ? Math.max(1, cartMotion.pathPoints.length - 1) : 1;
+      let cartTravelMs = cartMotion ? Math.max(760, routeSteps * 165) : 0;
+      if (loadedBarrels > 0 && approachMotion) {
+        startPieceFlightFromRects('cart', approachMotion.from, approachMotion.to, {
+          playerIndex, cargoCount: old.cartBarrels, targetRouteIndex: loadGateIndex, pathPoints: approachMotion.pathPoints,
+        });
+        const postLoadMotion = routeMotion(playerIndex, loadGateIndex, now.cartPosition, false);
+        if (postLoadMotion && postLoadMotion.pathPoints.length > 1) {
+          routeSteps = Math.max(1, postLoadMotion.pathPoints.length - 1);
+          cartTravelMs = Math.max(760, routeSteps * 165);
+          startPieceFlightFromRects('cart', approachMotion.to, approachMotion.to, {
+            playerIndex, cargoCount: old.cartBarrels, targetRouteIndex: loadGateIndex,
+            durationMs: loadAnimationMs, delayMs: loadGateTravelMs,
+          });
+          startPieceFlightFromRects('cart', postLoadMotion.from, postLoadMotion.to, {
+            playerIndex, cargoCount: old.cartBarrels + loadedBarrels, targetRouteIndex: now.cartPosition,
+            pathPoints: postLoadMotion.pathPoints, delayMs: loadGateTravelMs + loadAnimationMs,
+          });
+        }
+      } else if (cartMotion) {
+        startPieceFlightFromRects('cart', cartMotion.from, cartMotion.to, {
+          playerIndex, cargoCount: now.cartBarrels, targetRouteIndex: now.cartPosition, pathPoints: cartMotion.pathPoints,
+        });
       }
-
       now.breweryDeliveries.forEach((count: number, breweryIndex: number) => {
         const delivered = count - (old.breweryDeliveries[breweryIndex] ?? 0);
         if (delivered <= 0) return;
-        const from = routeRect(playerIndex, old.cartPosition, 28), to = routeRect(playerIndex, 9 + breweryIndex, 30);
-        if (from && to) for (let barrel = 0; barrel < delivered; barrel++) startPieceFlightFromRects('expansion-cargo', from, to, { cargoKind: 'barrel', playerIndex, targetRouteIndex: 9 + breweryIndex, delayMs: barrel * 90 });
+        const routeIndex = 9 + breweryIndex;
+        let stepsToGate = 0, cursor = loadedBarrels > 0 ? loadGateIndex : old.cartPosition;
+        while (stepsToGate < cartRoute.length && cursor !== routeIndex) {
+          cursor = (cursor + (reverseCartMotion ? -1 : 1) + cartRoute.length) % cartRoute.length;
+          stepsToGate++;
+        }
+        const gate = routeRect(playerIndex, routeIndex, 28);
+        const board = document.querySelector<HTMLElement>(`.expansion-transport-board[data-transport-player-index="${playerIndex}"]`);
+        const boardRect = board?.getBoundingClientRect(), location = cartRoute[routeIndex];
+        const tokenSize = Math.min(30, (boardRect?.width ?? 0) * .12);
+        const deliveryTarget = boardRect && location ? {
+          left: boardRect.left + boardRect.width * Math.min(92, location.left + 20) / 100 - tokenSize / 2,
+          top: boardRect.top + boardRect.height * location.top / 100 - tokenSize / 2,
+          width: tokenSize, height: tokenSize,
+        } : null;
+        const arrivalDelay = loadedBarrels > 0
+          ? loadGateTravelMs + loadAnimationMs + (cartTravelMs ? cartTravelMs * Math.min(1, stepsToGate / routeSteps) : 0)
+          : (cartTravelMs ? cartTravelMs * Math.min(1, stepsToGate / routeSteps) : 0);
+        if (gate && deliveryTarget) for (let barrel = 0; barrel < delivered; barrel++) startPieceFlightFromRects('expansion-cargo', gate, deliveryTarget, {
+          cargoKind: 'barrel', playerIndex, targetRouteIndex: routeIndex, delayMs: arrivalDelay + barrel * 130,
+        });
       });
 
       // When a hut reward is resolved, fly its tile to the reminder/unlock spot
@@ -2202,6 +2253,9 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     ...(scoreCategories.includes('C') ? resources.flatMap((resource, i) => scoreChoices(activePlayer, 'C').some(value => String(value) === resource) ? [i + 1] : []) : []),
     ...(scoreCategories.includes('B') ? monkNames.flatMap((monk, i) => scoreChoices(activePlayer, 'B').some(value => String(value) === monk) ? [i + 6] : []) : []),
   ] : [];
+  // Keep every player's board mounted; selected board goes first for legacy
+  // animation lookups that still use an unscoped selector.
+  const boardViewOrder = [viewingPlayerIndex, ...G.players.map((_, index) => index).filter(index => index !== viewingPlayerIndex)];
   const placeScoreFromBoard = (index: number) => {
     if (!canControlTurn || !action || action.baseDone || action.type !== 'score') return;
     if (index === 0) {
@@ -2267,7 +2321,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     })}
     {pieceFlights.map(flight => {
       return <React.Fragment key={flight.id}>
-        <div data-piece-flight-id={flight.id} className={`tile-flight ${flight.started ? flight.pathPoints ? 'path-moving' : 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, ['--flight-duration' as any]: `${flight.durationMs ?? 980}ms`, backgroundPosition: flight.kind === 'resource-marker' ? trackMarkerSpritePosition(flight.resourceKey!) : flight.kind === 'brewer-marker' ? meepleSpritePosition(flight.playerColor || 'black') : flight.kind === 'meeple' ? meepleSpritePosition(flight.playerColor || 'black') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <BarrelGoalArt id={flight.barrelId || 0} /> : flight.kind === 'expansion-cargo' ? flight.cargoKind === 'barrel' ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="" /> : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="" /> : flight.kind === 'cart' ? <span className="transport-cart-marker flight-cart-marker">{(flight.cargoCount ?? 0) > 0 && <span className="cart-cargo-stack">{Array.from({ length: flight.cargoCount ?? 0 }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="" /></span> : flight.kind === 'die' ? <DiceFace value={flight.dieValue ?? 1} /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : flight.kind === 'store-card' ? <img src={`/Images/store_${flight.storeId}.png`} alt="" /> : null}</div>
+        <div data-piece-flight-id={flight.id} className={`tile-flight ${!flight.started && (flight.delayMs ?? 0) > 0 ? 'is-delayed' : ''} ${flight.started ? flight.pathPoints ? 'path-moving' : 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, ['--flight-duration' as any]: `${flight.durationMs ?? 980}ms`, backgroundPosition: flight.kind === 'resource-marker' ? trackMarkerSpritePosition(flight.resourceKey!) : flight.kind === 'brewer-marker' ? meepleSpritePosition(flight.playerColor || 'black') : flight.kind === 'meeple' ? meepleSpritePosition(flight.playerColor || 'black') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <BarrelGoalArt id={flight.barrelId || 0} /> : flight.kind === 'expansion-cargo' ? flight.cargoKind === 'barrel' ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="" /> : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="" /> : flight.kind === 'cart' ? <span className="transport-cart-marker flight-cart-marker">{(flight.cargoCount ?? 0) > 0 && <span className="cart-cargo-stack">{Array.from({ length: flight.cargoCount ?? 0 }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="" /></span> : flight.kind === 'die' ? <DiceFace value={flight.dieValue ?? 1} /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : flight.kind === 'store-card' ? <img src={`/Images/store_${flight.storeId}.png`} alt="" /> : null}</div>
       </React.Fragment>;
     })}
     <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 对局 ${roomCode}`}</small></div>{isSpectator && <span className="spectator-badge">旁观中</span>}{G.expansionEnabled && <span className="expansion-room-badge">含扩展包</span>}<div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div>{G.phase === 'finished' && <button className="icon-btn final-score-reopen" onClick={() => setShowFinalScore(true)}>最终计分</button>}<button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{G.phase !== 'finished' && !isLocal && !isSpectator && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number(clientPlayerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{G.phase !== 'finished' && isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
@@ -2336,7 +2390,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
           {(G.undoSnapshot || G.confirmationKind) && canControlTurn && <div className="action-confirm-bar"><span>{G.confirmationKind ? '行动已完成，请确认或撤回。' : activeShedChoice ? '请选择棚屋奖励板块，或撤回整次行动。' : action?.type === 'resource' || action?.type === 'monk' ? '可继续购买；结束购买后可确认或撤回整次行动。' : '可以撤回当前选择，重新选行动格。'}</span>{G.undoSnapshot && G.stepUndoSnapshots?.length ? <button className="btn btn-undo" onClick={() => requestGameAction('undoStep')}>撤回上一步</button> : null}{G.undoSnapshot && <button className="btn btn-undo" onClick={() => requestGameAction('undoAction')}>撤回整次行动</button>}{G.confirmationKind && !G.privilegePrompts.length && !G.shedChoices.length && !G.startChoice && <button className="btn btn-gold btn-confirm" onClick={() => requestGameAction('confirmAction')}>确认行动</button>}</div>}
         </div>
       </section>
-      <aside className={`right-rail ${!isViewingOwn ? 'is-inspecting-opponent' : ''}`}><div className="garden-heading"><div><h2>{me.name}的修道院</h2>{!isViewingOwn && <small className="inspection-hint">{isSpectator ? '旁观视角 · 只读' : '正在查看对手版图 · 只读'}</small>}</div><div className="garden-legend"></div></div><div className={`garden-board-pair ${G.expansionEnabled && G.expansion ? 'has-expansion' : ''}`}>{G.expansionEnabled && G.expansion && <div className="expansion-board-reserved"><ExpansionTransportBoard board={G.expansion.players[viewingPlayerIndex]} color={me.color} playerIndex={viewingPlayerIndex} pieceFlights={pieceFlights} storeEffectLabels={expansionStoreEffects} cargoPlacement={expansionBoardCargoPlacement} /></div>}<div className="garden-board-reserved"><Garden player={me} playerIndex={viewingPlayerIndex} pieceFlights={pieceFlights} selectedTile={isViewingCurrent && canPlace ? selectedTile : undefined} sourceIndex={currentActionSpace?.sourceIndex} coins={activePlayer.coins} canPlace={isViewingCurrent && canPlace} activePlayer={me} shedChoice={isViewingCurrent && canControlTurn && !expansionStorePrompt ? activeShedChoice : undefined} flightTileId={pieceFlights.find(flight => flight.kind === 'tile')?.tile?.id} flightTargetIndex={pieceFlights.find(flight => flight.kind === 'tile')?.targetIndex} flightScoreIndex={pieceFlights.find(flight => flight.kind === 'disc' && flight.playerIndex === viewingPlayerIndex)?.scoreIndex} scoreXValue={productionScoreMarkerValue(me, G.log)} scoreTargetIndices={scoreTargetIndices} onScoreTarget={placeScoreFromBoard} onShedToggle={(i) => { if (canControlTurn && isViewingCurrent) moves.toggleShedChoice(i); }} onSelect={(i) => { if (canControlTurn && isViewingCurrent) placeTile(i); }} cells={garden} storeTiles={G.expansionEnabled ? G.expansion?.players[viewingPlayerIndex]?.hutStoreTiles : undefined} storeSetup={canConfigureExpansionStores} selectedStoreId={selectedExpansionStoreId} storeSetupReady={G.expansion?.storeSetupReady?.[viewingPlayerIndex] ?? false} onStoreTarget={placeExpansionStoreTarget} /></div></div><div className="rail-heading">特权卡 · 点击弃置可得3个钱币</div><div className="privileges">{['A', 'B', 'C', 'D', 'E'].filter(card => !me.privilegePairs.includes(card)).map(card => { const inHand = me.privileges.includes(card); const earned = me.privilegePairs.includes(card); const blocked = G.phase !== 'play' || !canControlTurn || !isViewingCurrent || (!!G.confirmationKind && G.confirmationKind !== 'turn') || !!privilegePrompt; return <div className={`privilege ${inHand ? '' : 'used'}`} data-privilege-card={card} key={card}><img src={`/Images/privilege_card_front_${card}.png`} alt={`特权卡 ${card}`} />{inHand ? <button disabled={blocked} onClick={() => { if (blocked || G.phase !== 'play') return; animatePrivilegeCoins(currentPlayerIndex, card, 3); moves.discardPrivilege(card); }}>弃置 +3</button> : <span>{earned ? '已放置' : '已弃置'}</span>}</div>; })}</div><div className="rail-heading">已领取酒桶 <span className="count">{me.claimedBarrels.length}</span></div><div className="barrel-strip">{me.claimedBarrels.map((b, i) => <span key={`${b.id}-${i}`} className={`barrel-claimed-item ${b.size}`} style={{ visibility: pieceFlights.some(flight => flight.kind === 'barrel' && flight.playerIndex === viewingPlayerIndex && flight.barrelId === b.id && flight.barrelSize === b.size) ? 'hidden' : 'visible' }} title={`酒桶${b.id}：${barrelGoals[b.id - 1]} ${b.size === 'large' ? '大酒桶，4分' : '小酒桶，2分'}`}><BarrelGoalArt id={b.id} className="claimed-barrel-art" /><small>{b.size === 'large' ? '大 · 4分' : '小 · 2分'}</small></span>)}</div><div className="score-summary"><span>当前钱币</span><b><i className="player-coin-icon" aria-label="钱币" /> {me.coins}</b><span>酒桶计分</span><b>{viewingScoring.barrelScore + viewingScoring.expansionBarrelScore} 分</b></div></aside>
+      <aside className={`right-rail ${!isViewingOwn ? 'is-inspecting-opponent' : ''}`}><div className="garden-heading"><div><h2>{me.name}的修道院</h2>{!isViewingOwn && <small className="inspection-hint">{isSpectator ? '旁观视角 · 只读' : '正在查看对手版图 · 只读'}</small>}</div><div className="garden-legend"></div></div><div className="player-board-cache">{boardViewOrder.map(boardPlayerIndex => { const boardPlayer = G.players[boardPlayerIndex]; const visible = boardPlayerIndex === viewingPlayerIndex; const boardCargoPlacement = visible ? expansionBoardCargoPlacement : undefined; const boardTileFlight = pieceFlights.find(flight => flight.kind === 'tile' && flight.playerIndex === boardPlayerIndex); return <div key={boardPlayerIndex} className={`player-board-cache-item ${visible ? 'is-visible' : 'is-cached'}`} aria-hidden={!visible}><div className={`garden-board-pair ${G.expansionEnabled && G.expansion ? 'has-expansion' : ''}`}>{G.expansionEnabled && G.expansion && <div className="expansion-board-reserved"><ExpansionTransportBoard board={G.expansion.players[boardPlayerIndex]} color={boardPlayer.color} playerIndex={boardPlayerIndex} pieceFlights={pieceFlights} storeEffectLabels={expansionStoreEffects} cargoPlacement={boardCargoPlacement} /></div>}<div className="garden-board-reserved"><Garden player={boardPlayer} playerIndex={boardPlayerIndex} pieceFlights={pieceFlights} selectedTile={visible && isViewingCurrent && canPlace ? selectedTile : undefined} sourceIndex={visible ? currentActionSpace?.sourceIndex : undefined} coins={boardPlayer.coins} canPlace={visible && isViewingCurrent && canPlace} activePlayer={boardPlayer} shedChoice={visible && isViewingCurrent && canControlTurn && !expansionStorePrompt ? activeShedChoice : undefined} flightTileId={boardTileFlight?.tile?.id} flightTargetIndex={boardTileFlight?.targetIndex} flightScoreIndex={pieceFlights.find(flight => flight.kind === 'disc' && flight.playerIndex === boardPlayerIndex)?.scoreIndex} scoreXValue={productionScoreMarkerValue(boardPlayer, G.log)} scoreTargetIndices={visible ? scoreTargetIndices : []} onScoreTarget={placeScoreFromBoard} onShedToggle={(i) => { if (visible && canControlTurn && isViewingCurrent) moves.toggleShedChoice(i); }} onSelect={(i) => { if (visible && canControlTurn && isViewingCurrent) placeTile(i); }} cells={garden} storeTiles={G.expansionEnabled ? G.expansion?.players[boardPlayerIndex]?.hutStoreTiles : undefined} storeSetup={visible && canConfigureExpansionStores} selectedStoreId={visible ? selectedExpansionStoreId : null} storeSetupReady={G.expansion?.storeSetupReady?.[boardPlayerIndex] ?? false} onStoreTarget={placeExpansionStoreTarget} /></div></div></div>; })}</div><div className="rail-heading">特权卡 · 点击弃置可得3个钱币</div><div className="privileges">{['A', 'B', 'C', 'D', 'E'].filter(card => !me.privilegePairs.includes(card)).map(card => { const inHand = me.privileges.includes(card); const earned = me.privilegePairs.includes(card); const blocked = G.phase !== 'play' || !canControlTurn || !isViewingCurrent || (!!G.confirmationKind && G.confirmationKind !== 'turn') || !!privilegePrompt; return <div className={`privilege ${inHand ? '' : 'used'}`} data-privilege-card={card} key={card}><img src={`/Images/privilege_card_front_${card}.png`} alt={`特权卡 ${card}`} />{inHand ? <button disabled={blocked} onClick={() => { if (blocked || G.phase !== 'play') return; animatePrivilegeCoins(currentPlayerIndex, card, 3); moves.discardPrivilege(card); }}>弃置 +3</button> : <span>{earned ? '已放置' : '已弃置'}</span>}</div>; })}</div><div className="rail-heading">已领取酒桶 <span className="count">{me.claimedBarrels.length}</span></div><div className="barrel-strip">{me.claimedBarrels.map((b, i) => <span key={`${b.id}-${i}`} className={`barrel-claimed-item ${b.size}`} style={{ visibility: pieceFlights.some(flight => flight.kind === 'barrel' && flight.playerIndex === viewingPlayerIndex && flight.barrelId === b.id && flight.barrelSize === b.size) ? 'hidden' : 'visible' }} title={`酒桶${b.id}：${barrelGoals[b.id - 1]} ${b.size === 'large' ? '大酒桶，4分' : '小酒桶，2分'}`}><BarrelGoalArt id={b.id} className="claimed-barrel-art" /><small>{b.size === 'large' ? '大 · 4分' : '小 · 2分'}</small></span>)}</div><div className="score-summary"><span>当前钱币</span><b><i className="player-coin-icon" aria-label="钱币" /> {me.coins}</b><span>酒桶计分</span><b>{viewingScoring.barrelScore + viewingScoring.expansionBarrelScore} 分</b></div></aside>
       <aside className="far-right-rail"><div className="rail-heading">玩家信息 · 点击查看版图</div><div className="player-roster">{rosterOrder.map(i => { const p = G.players[i];
         const scoring = scoreBreakdown(p, G.expansionEnabled ? G.expansion?.players[i] : undefined); const searchStatus = botSearchStatus?.playerID === i ? botSearchStatus : sharedBotSearches.find(status => status.playerID === i && status.thinking && Date.now() - status.updatedAt < 12000); return <div className={`player-info-unit ${i === viewingPlayerIndex ? 'is-viewing' : ''}`} data-player-index={i} key={i} role="button" tabIndex={0} aria-label={`查看${p.name}的玩家版图`} onClick={() => setViewingPlayerIndex(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingPlayerIndex(i); } }}>
           <div className={`player-card ${i === Number(ctx.currentPlayer) ? 'is-turn' : ''} ${p.retired ? 'is-done' : ''}`}><div className={`avatar ${p.color}`} title={`首轮第 ${firstOrder.indexOf(i) + 1} 个行动`} aria-label={`首轮行动顺序第 ${firstOrder.indexOf(i) + 1} 位`}>{firstOrder.indexOf(i) + 1}</div><div className="player-name"><span className="player-name-score"><span className="player-display-name">{p.name}</span>{G.phase === 'play' && i === G.startPlayer && <span className="round-first-player-icon" title="本轮先手" aria-label="本轮先手"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 14V2m1 1h8l-2.4 3L12 9H4" /></svg></span>}{!isSpectator && i === ownPlayerIndex && !botSeats.includes(i) && <b className="self-player-badge">你</b>}<b title={liveScoreTitle(p, scoring, G.expansionEnabled ? G.expansion?.players[i] : undefined)}>★ {scoring.total}</b></span><small>{botSeats.includes(i) ? `${botDifficulty === 'expert' ? '专家' : '普通'}机器人${i === Number(ctx.currentPlayer) ? searchStatus ? ` · 搜索中 ${searchStatus.iterations} 次` : ' · 正在行动' : ''}` : p.retired ? '本轮已休息' : i === Number(ctx.currentPlayer) ? '正在行动' : '等待中'}</small></div><div className="money"><i className="player-coin-icon" aria-label="钱币" /> {p.coins}</div></div>

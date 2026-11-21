@@ -1254,7 +1254,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
   const activePlayer = action ? G.players[Number(action.player)] : currentPlayer;
   const garden = gardenCells;
   const activeSeat = Number(ctx.currentPlayer);
-  const isBotTurn = botSeats.includes(activeSeat) && G.phase !== 'finished';
+  const isBotTurn = !isReplaying && botSeats.includes(activeSeat) && liveG.phase !== 'finished';
   const sharedActiveBotSearch = sharedBotSearches.find(search => search.playerID === activeSeat && Date.now() - search.updatedAt < 12000);
   const activeBotSearch = botSearchStatus?.playerID === activeSeat ? botSearchStatus : sharedActiveBotSearch?.thinking ? sharedActiveBotSearch : undefined;
   const canControlTurn = !isReplaying && ownsCurrentTurn && !isBotTurn && !onlineVoteState.passed;
@@ -2067,6 +2067,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     return 0;
   };
   const animateBotMove = (decision: { name: string; args: unknown[] }, current: any) => {
+    if (isReplaying) return 0;
     const playerIndex = Number(current.ctx.currentPlayer), player = current.G.players[playerIndex];
     if (isLocal && botSeats.includes(playerIndex) && current.G.expansionEnabled && ['takeExpansionCargo', 'chooseExpansionCartLoad', 'useExpansionCart', 'resolveExpansionStore'].includes(decision.name)) setViewingPlayerIndex(playerIndex);
     if (decision.name === 'assignExpansionStoreLayout') {
@@ -2252,8 +2253,8 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
   }
   const replayIndex = selectedReplayFrame ? replayFrames.findIndex(frame => frame.id === selectedReplayFrame.id) : -1;
   return <main className={`table-screen ${G.expansionEnabled ? 'expansion-enabled' : ''} ${isReplaying ? 'is-replaying' : ''}`} onDragStartCapture={event => event.preventDefault()}>
-    {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />}
-    {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />)}
+    {isLocal && <BotController client={client} botSeats={botSeats} difficulty={botDifficulty} replayActive={isReplaying} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />}
+    {remoteBotClients.map(({ client: botClient, seat }) => <OnlineBotDriver key={seat} client={botClient} seat={seat} name={`机器人${seat + 1}`} difficulty={remoteBotDifficulty} replayActive={isReplaying} onThinking={reportBotThinking} onBeforeMove={animateBotMove} />)}
     {movementTrails.filter(trail => trail.started).map(trail => {
       const pathData = smoothMotionPath(trail.pathPoints);
       const offsetX = pageScroll.x - (trail.scrollX ?? 0), offsetY = pageScroll.y - (trail.scrollY ?? 0);
@@ -2363,7 +2364,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
   </main>;
 }
 
-function OnlineBotDriver({ client, seat, name, difficulty, onThinking, onBeforeMove }: { client: AnyClient; seat: number; name: string; difficulty: BotDifficulty; onThinking: (status: { playerID: number; iterations: number } | null) => void; onBeforeMove: (decision: { name: string; args: unknown[] }, current: any) => number }) {
+function OnlineBotDriver({ client, seat, name, difficulty, replayActive, onThinking, onBeforeMove }: { client: AnyClient; seat: number; name: string; difficulty: BotDifficulty; replayActive: boolean; onThinking: (status: { playerID: number; iterations: number } | null) => void; onBeforeMove: (decision: { name: string; args: unknown[] }, current: any) => number }) {
   const botSeats = useMemo(() => [seat], [seat]);
   useEffect(() => {
     const syncName = (state: any) => {
@@ -2373,18 +2374,27 @@ function OnlineBotDriver({ client, seat, name, difficulty, onThinking, onBeforeM
     syncName((client as any).getState());
     return unsubscribe;
   }, [client, seat, name]);
-  return <BotController client={client} botSeats={botSeats} difficulty={difficulty} onThinking={onThinking} onBeforeMove={onBeforeMove} />;
+  return <BotController client={client} botSeats={botSeats} difficulty={difficulty} replayActive={replayActive} onThinking={onThinking} onBeforeMove={onBeforeMove} />;
 }
 
-function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove }: { client: AnyClient; botSeats: number[]; difficulty: BotDifficulty; onThinking: (status: { playerID: number; iterations: number } | null) => void; onBeforeMove: (decision: { name: string; args: unknown[] }, current: any) => number }) {
+function BotController({ client, botSeats, difficulty, replayActive, onThinking, onBeforeMove }: { client: AnyClient; botSeats: number[]; difficulty: BotDifficulty; replayActive: boolean; onThinking: (status: { playerID: number; iterations: number } | null) => void; onBeforeMove: (decision: { name: string; args: unknown[] }, current: any) => number }) {
   const onBeforeMoveRef = React.useRef(onBeforeMove);
+  const replayActiveRef = React.useRef(replayActive);
+  const animationLockUntilRef = React.useRef(0);
+  const replayWakeRef = React.useRef<() => void>(() => {});
   useEffect(() => { onBeforeMoveRef.current = onBeforeMove; }, [onBeforeMove]);
+  useEffect(() => {
+    replayActiveRef.current = replayActive;
+    if (replayActive) {
+      animationLockUntilRef.current = 0;
+      replayWakeRef.current();
+    }
+  }, [replayActive]);
   useEffect(() => {
     if (!botSeats.length) return;
     let timer: number | undefined;
     let worker: Worker | undefined;
     let requestID = 0;
-    let animationLockUntil = 0;
     let lastProgressAt = 0;
     const onState = (state: any) => {
       requestID++;
@@ -2395,8 +2405,9 @@ function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove 
       if (!state || state.G.phase === 'finished') { onThinking(null); return; }
       if (!botSeats.includes(playerID)) return;
       onThinking({ playerID, iterations: 0 });
-      const waitForAnimation = Math.max(100, animationLockUntil - Date.now() + 30);
+      const waitForAnimation = replayActiveRef.current ? 100 : Math.max(100, animationLockUntilRef.current - Date.now() + 30);
       timer = window.setTimeout(() => {
+        timer = undefined;
         const current = (client as any).getState();
         if (!current || current._stateID !== state._stateID) return;
         const finish = (decision: ReturnType<typeof chooseBotMove>) => {
@@ -2406,8 +2417,8 @@ function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove 
           const latest = (client as any).getState();
           if (latest?._stateID !== current._stateID || latest.ctx.currentPlayer !== current.ctx.currentPlayer) return;
           if (decision) {
-            const animationTime = onBeforeMoveRef.current(decision, current);
-            if (animationTime > 0) animationLockUntil = Math.max(animationLockUntil, Date.now() + animationTime + BOT_AFTER_ANIMATION_PAUSE_MS);
+            const animationTime = replayActiveRef.current ? 0 : onBeforeMoveRef.current(decision, current);
+            if (animationTime > 0) animationLockUntilRef.current = Math.max(animationLockUntilRef.current, Date.now() + animationTime + BOT_AFTER_ANIMATION_PAUSE_MS);
             (client as any).moves[decision.name]?.(...decision.args);
           }
         };
@@ -2439,10 +2450,17 @@ function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove 
         });
       }, waitForAnimation);
     };
+    replayWakeRef.current = () => {
+      if (timer === undefined) return;
+      window.clearTimeout(timer);
+      timer = undefined;
+      onState((client as any).getState());
+    };
   const unsubscribe = client.subscribe(onState);
     return () => {
       requestID++;
       if (timer !== undefined) window.clearTimeout(timer);
+      replayWakeRef.current = () => {};
       worker?.terminate();
       onThinking(null);
       unsubscribe();

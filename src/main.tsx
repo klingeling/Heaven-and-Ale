@@ -1214,7 +1214,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     const now = Date.now();
     if (status || lastBotStatusRef.current) {
       const last = lastBotStatusRef.current;
-      if (last && (!status || now - lastBotStatusSyncRef.current >= 300)) {
+      if (last && (!status || now - lastBotStatusSyncRef.current >= 900)) {
         lastBotStatusSyncRef.current = now;
         onBotSearchUpdateRef.current({ playerID: last.playerID, iterations: status?.iterations ?? last.iterations, thinking: !!status, updatedAt: now });
       }

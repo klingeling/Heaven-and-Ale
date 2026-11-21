@@ -39,6 +39,20 @@ create table if not exists public.online_room_members (
   primary key (match_id, player_id)
 );
 
+-- Keep replay snapshots out of bgio_matches.metadata, which boardgame.io
+-- rewrites for ordinary player updates such as bot-search status.
+create table if not exists public.online_room_replay_frames (
+  match_id text not null references public.online_rooms(match_id) on delete cascade,
+  frame_id text not null,
+  log_start integer not null,
+  log_end integer not null,
+  player_index integer not null,
+  frame jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key (match_id, frame_id)
+);
+create index if not exists online_room_replay_frames_order_idx on public.online_room_replay_frames(match_id, log_end, log_start);
+
 create index if not exists online_room_members_user_idx on public.online_room_members(user_id, joined_at desc);
 create index if not exists online_room_members_owner_idx on public.online_room_members(owner_user_id, match_id);
 create index if not exists online_rooms_public_waiting_idx on public.online_rooms(status, created_at desc) where is_private = false;
@@ -46,10 +60,13 @@ create index if not exists online_rooms_public_waiting_idx on public.online_room
 alter table public.bgio_matches enable row level security;
 alter table public.online_rooms enable row level security;
 alter table public.online_room_members enable row level security;
+alter table public.online_room_replay_frames enable row level security;
 
 revoke all on public.bgio_matches from anon, authenticated;
 revoke all on public.online_rooms from anon, authenticated;
 revoke all on public.online_room_members from anon, authenticated;
+revoke all on public.online_room_replay_frames from anon, authenticated;
 grant all on public.bgio_matches to service_role;
 grant all on public.online_rooms to service_role;
 grant all on public.online_room_members to service_role;
+grant all on public.online_room_replay_frames to service_role;

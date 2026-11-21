@@ -33,6 +33,41 @@ const queryPath = (table: string, params: Record<string, string>) => {
   return `/rest/v1/${table}?${search.toString()}`;
 };
 const eq = (value: string | number) => `eq.${String(value)}`;
+const transientReplayFrames = new Map<string, Map<string, any>>();
+const maxTransientReplayMatches = 10;
+const maxReplayFramesPerMatch = 500;
+function keepTransientReplayFrame(matchID: string, frame: any) {
+  let frames = transientReplayFrames.get(matchID);
+  if (!frames) {
+    frames = new Map();
+    transientReplayFrames.set(matchID, frames);
+  }
+  frames.set(String(frame.id), frame);
+  while (frames.size > maxReplayFramesPerMatch) frames.delete(frames.keys().next().value!);
+  transientReplayFrames.delete(matchID);
+  transientReplayFrames.set(matchID, frames);
+  while (transientReplayFrames.size > maxTransientReplayMatches) transientReplayFrames.delete(transientReplayFrames.keys().next().value!);
+}
+async function saveReplayFrame(matchID: string, frame: any) {
+  try {
+    await supabaseRequest(queryPath('online_room_replay_frames', { on_conflict: 'match_id,frame_id' }), {
+      method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ match_id: matchID, frame_id: frame.id, log_start: frame.logStart, log_end: frame.logEnd, player_index: frame.playerIndex, frame }),
+    });
+    transientReplayFrames.delete(matchID);
+    return true;
+  } catch {
+    keepTransientReplayFrame(matchID, frame);
+    return false;
+  }
+}
+async function loadReplayFrames(matchID: string) {
+  try {
+    const rows = await supabaseRequest(queryPath('online_room_replay_frames', { select: 'frame', match_id: eq(matchID), order: 'log_end.asc,log_start.asc', limit: String(maxReplayFramesPerMatch) })) as any[];
+    if (rows.length) return rows.map(row => row.frame).filter(Boolean);
+  } catch { /* Keep replay available in process memory until the schema migration is applied. */ }
+  return [...(transientReplayFrames.get(matchID)?.values() ?? [])];
+}
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const encrypt = (value: string) => {
   const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', secretBytes, iv);
@@ -60,7 +95,9 @@ class SupabaseMatchStorage {
     await supabaseRequest(queryPath('bgio_matches', { match_id: eq(matchID) }), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ state, log, updated_at: new Date().toISOString() }) });
   }
   async setMetadata(matchID: string, metadata: any) {
-    await supabaseRequest(queryPath('bgio_matches', { match_id: eq(matchID) }), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ metadata, updated_at: new Date().toISOString() }) });
+    const compactMetadata = { ...metadata };
+    delete compactMetadata.publicReplayFrames;
+    await supabaseRequest(queryPath('bgio_matches', { match_id: eq(matchID) }), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ metadata: compactMetadata, updated_at: new Date().toISOString() }) });
   }
   async fetch(matchID: string, opts: any) {
     const columns = Object.entries({ state: opts.state, log: opts.log, metadata: opts.metadata, initial_state: opts.initialState }).filter(([, enabled]) => enabled).map(([name]) => name);
@@ -70,7 +107,10 @@ class SupabaseMatchStorage {
     const row = rows[0], result: any = {};
     if (opts.state) result.state = row.state;
     if (opts.log) result.log = row.log || [];
-    if (opts.metadata) result.metadata = row.metadata;
+    if (opts.metadata) {
+      result.metadata = { ...row.metadata };
+      delete result.metadata.publicReplayFrames;
+    }
     if (opts.initialState) result.initialState = row.initial_state;
     return result;
   }
@@ -80,10 +120,10 @@ class SupabaseMatchStorage {
     await supabaseRequest(queryPath('online_room_members', { match_id: eq(matchID) }), { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
   }
   async listMatches(opts: any = {}) {
-    const rows = await supabaseRequest(queryPath('bgio_matches', { select: 'match_id,game_name,metadata,updated_at' })) as any[];
+    const rows = await supabaseRequest(queryPath('bgio_matches', { select: 'match_id,game_name,state,updated_at' })) as any[];
     return rows.filter(row => {
       if (opts.gameName && row.game_name !== opts.gameName) return false;
-      const ended = !!row.metadata?.gameover;
+      const ended = row.state?.G?.phase === 'finished';
       if (opts.where?.isGameover !== undefined && ended !== opts.where.isGameover) return false;
       const time = Date.parse(row.updated_at || '');
       if (opts.where?.updatedBefore && time >= opts.where.updatedBefore) return false;
@@ -332,16 +372,15 @@ server.router.get('/account/public-history', async ctx => {
   })) as any[];
   const history: any[] = [];
   for (let start = 0; start < rooms.length; start += 25) {
-    const batch = await Promise.all(rooms.slice(start, start + 25).map(async room => {
-      const fetched = await (server.db as any).fetch(room.match_id, { metadata: true, state: true });
+    const batch = await Promise.all(rooms.slice(start, start + 8).map(async room => {
+      const fetched = await (server.db as any).fetch(room.match_id, { state: true });
       const game = fetched?.state?.G;
       if (!game || game.phase !== 'finished' || !Array.isArray(game.players)) return null;
       const players = game.players.map((player: any, index: number) => ({
-        name: fetched.metadata?.players?.[index]?.name || player.name || `玩家${index + 1}`,
+        name: player.name || `玩家${index + 1}`,
         score: scoreBreakdown(player, game.expansionEnabled ? game.expansion?.players?.[index] : undefined).total,
       }));
-      const winners = fetched.metadata?.gameover?.winners || (fetched.metadata?.gameover?.winner !== undefined ? [fetched.metadata.gameover.winner] : []);
-      const winnerIndexes = winners.length ? winners.map(Number) : players.flatMap((player: any, index: number) => player.score === Math.max(...players.map((item: any) => item.score)) ? [index] : []);
+      const winnerIndexes = players.flatMap((player: any, index: number) => player.score === Math.max(...players.map((item: any) => item.score)) ? [index] : []);
       return {
         gameNumber: Number(room.game_number), matchID: room.match_id,
         playedAt: Date.parse(room.updated_at || room.created_at), expansionEnabled: room.expansion_enabled === true,
@@ -365,13 +404,9 @@ server.router.post('/account/rooms/replay', koaBody(), async ctx => {
   if (serialized.length > 100_000 || !Number.isInteger(frame.logStart) || !Number.isInteger(frame.logEnd) || frame.logEnd < frame.logStart || !Number.isInteger(frame.playerIndex)) ctx.throw(413, 'Replay frame is too large or malformed.');
   const members = await supabaseRequest(queryPath('online_room_members', { select: 'user_id', match_id: eq(matchID), user_id: eq(user.id) })) as any[];
   if (!members.length) ctx.throw(403, 'You are not a member of this room.');
-  const metadata = await authorizedSeat(ctx, matchID, playerID, credentials);
-  const currentFrames = Array.isArray(metadata.publicReplayFrames) ? metadata.publicReplayFrames : [];
-  const byId = new Map<string, any>(currentFrames.map((existing: any) => [String(existing.id), existing]));
-  byId.set(frame.id, frame);
-  metadata.publicReplayFrames = [...byId.values()].sort((a, b) => a.logEnd - b.logEnd || a.logStart - b.logStart).slice(-500);
-  await (server.db as any).setMetadata(matchID, metadata);
-  ctx.body = { ok: true };
+  await authorizedSeat(ctx, matchID, playerID, credentials);
+  const persisted = await saveReplayFrame(matchID, frame);
+  ctx.body = { ok: true, persisted };
 });
 
 server.router.get('/account/public-history/:number/replay', async ctx => {
@@ -380,9 +415,9 @@ server.router.get('/account/public-history/:number/replay', async ctx => {
   const rows = await supabaseRequest(queryPath('online_rooms', { select: 'match_id,is_private,status', game_number: eq(gameNumber), is_private: 'eq.false' })) as any[];
   const room = rows[0];
   if (!room || room.status !== 'finished') ctx.throw(404, 'Replay is not available for this public game.');
-  const fetched = await (server.db as any).fetch(room.match_id, { metadata: true, state: true });
+  const fetched = await (server.db as any).fetch(room.match_id, { state: true });
   if (fetched?.state?.G?.phase !== 'finished') ctx.throw(404, 'Replay is not available for this public game.');
-  ctx.body = { frames: Array.isArray(fetched.metadata?.publicReplayFrames) ? fetched.metadata.publicReplayFrames : [] };
+  ctx.body = { frames: await loadReplayFrames(room.match_id) };
 });
 
 server.router.get('/account/rooms/by-number/:number', async ctx => {

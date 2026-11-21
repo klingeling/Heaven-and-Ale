@@ -220,8 +220,11 @@ export const HeavenAle: Game<AleState> = {
   playerView: ({ G, playerID }) => redactExpansionStoreSetup(G, playerID ?? null),
   setup: ({ ctx, random }, setupData?: { expansionEnabled?: boolean; playerNames?: string[]; playerColors?: string[] }) => {
     const count = Math.max(2, Math.min(4, ctx.numPlayers));
+    const assignedColors = setupData?.playerColors && setupData.playerColors.length >= count
+      ? setupData.playerColors
+      : random.Shuffle([...playerColors]);
     const players = Array.from({ length: count }, (_, i) => {
-      const player = emptyPlayer(i, playerColors[i]);
+      const player = emptyPlayer(i, assignedColors[i] || playerColors[i]);
       player.name = setupData?.playerNames?.[i]?.trim() || player.name;
       const selectedColor = setupData?.playerColors?.[i];
       if (selectedColor && playerColors.includes(selectedColor)) player.color = selectedColor;

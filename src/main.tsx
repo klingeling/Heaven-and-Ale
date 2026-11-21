@@ -792,7 +792,7 @@ function App() {
         else setRoomInfo('无法读取房间状态，房间可能已结束或服务暂时休眠。');
       } }
     };
-    void refresh(); const timer = window.setInterval(() => void refresh(), 2500);
+    void refresh(); const timer = window.setInterval(() => void refresh(), screen === 'game' ? 1000 : 2500);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [screen, onlineRoom?.matchID, onlineRoom?.numPlayers, onlineRoom?.host, serverUrl, abandonVoteState.passed]);
 
@@ -1214,7 +1214,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     const now = Date.now();
     if (status || lastBotStatusRef.current) {
       const last = lastBotStatusRef.current;
-      if (last && (!status || now - lastBotStatusSyncRef.current >= 900)) {
+      if (last && (!status || now - lastBotStatusSyncRef.current >= 300)) {
         lastBotStatusSyncRef.current = now;
         onBotSearchUpdateRef.current({ playerID: last.playerID, iterations: status?.iterations ?? last.iterations, thinking: !!status, updatedAt: now });
       }
@@ -2421,7 +2421,7 @@ function BotController({ client, botSeats, difficulty, onThinking, onBeforeMove 
           if (event.data.requestID !== request) return;
           if (typeof event.data.progress === 'number') {
             const now = Date.now();
-            if (event.data.progress === 1 || now - lastProgressAt >= 900) { lastProgressAt = now; onThinking({ playerID, iterations: event.data.progress }); }
+            if (event.data.progress === 1 || now - lastProgressAt >= 300) { lastProgressAt = now; onThinking({ playerID, iterations: event.data.progress }); }
             return;
           }
           if (event.data.error) console.error('MCTS 搜索失败', event.data.error);

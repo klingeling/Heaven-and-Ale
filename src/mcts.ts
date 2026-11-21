@@ -109,7 +109,7 @@ export function searchBotMove(source: SearchState, difficulty: BotDifficulty, bu
       rootChild.values[rootActor]-=1;
       root.visits++;
       iterations++;
-      if(iterations===1 || iterations%16===0) onProgress?.(iterations);
+      if(iterations===1 || iterations%4===0) onProgress?.(iterations);
       continue;
     }
     state=afterRoot; node=rootChild; path.push(node); depth++;
@@ -154,7 +154,7 @@ export function searchBotMove(source: SearchState, difficulty: BotDifficulty, bu
     });
     for (const visited of path) { visited.visits++; rewards.forEach((v,i)=>visited.values[i]+=v); }
     iterations++;
-    if(iterations===1 || iterations%16===0) onProgress?.(iterations);
+    if(iterations===1 || iterations%4===0) onProgress?.(iterations);
   }
   const best=[...root.children].sort((a,b)=>b.visits-a.visits || b.values[Number(source.ctx.currentPlayer)]/Math.max(1,b.visits)-a.values[Number(source.ctx.currentPlayer)]/Math.max(1,a.visits))[0];
   return { move:best?.move ?? initial[0],iterations,

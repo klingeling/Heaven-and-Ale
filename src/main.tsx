@@ -214,6 +214,9 @@ function makeLocalGame(_bots: number[], names: string[], expansionEnabled = fals
 function App() {
   const initialGameNumber = /^\/game\/(\d+)\/?$/.exec(window.location.pathname)?.[1] || '';
   const [screen, setScreen] = useState<'home' | 'new-game' | 'waiting' | 'game' | 'route-loading' | 'joining-room'>(() => initialGameNumber ? 'route-loading' : window.location.pathname.replace(/\/$/, '') === '/new_game' ? 'new-game' : 'home');
+  useLayoutEffect(() => {
+    if (screen === 'game') window.scrollTo(0, 0);
+  }, [screen]);
   const [routeGameNumber, setRouteGameNumber] = useState(initialGameNumber);
   const [routeResolvedMatchID, setRouteResolvedMatchID] = useState('');
   const [routeRoomPreview, setRouteRoomPreview] = useState<RouteRoomPreview | null>(null);

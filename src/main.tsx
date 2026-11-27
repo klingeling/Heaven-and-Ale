@@ -1528,7 +1528,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
       const height = kind === 'monk' ? width : width / .8660254;
       const from = { left: sourceRect.left + (sourceRect.width - width) / 2, top: sourceRect.top + (sourceRect.height - height) / 2, width, height };
       const to = { left: targetRect.left + (targetRect.width - width) / 2, top: targetRect.top + (targetRect.height - height) / 2, width, height };
-      startPieceFlightFromRects('tile-back', from, to, { tile, targetTrackIndex: trackIndex, delayMs: order * 28 });
+      startPieceFlightFromRects('tile-back', from, to, { tile, targetTrackIndex: trackIndex, delayMs: order * 240, durationMs: 420 });
     };
 
     if (!previous) {

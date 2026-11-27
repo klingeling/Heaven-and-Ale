@@ -311,6 +311,8 @@
 .monk-round-slot{position:relative;min-width:0}
 .monk-round-pile{position:absolute;left:50%;top:50%;width:90%;aspect-ratio:1;display:block;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 3px #000b)}
 .monk-round-pile.is-empty{border-radius:50%}
+.monk-round-pile.is-empty{filter:none}
+.monk-round-pile.is-empty img{filter:saturate(.42) brightness(.76) contrast(.7)}
 .monk-round-pile img{display:block;width:100%;height:100%;object-fit:cover;border-radius:50%}
 .monk-round-pile>b{position:absolute;right:-6px;bottom:-5px;min-width:17px;height:17px;padding:0 3px;display:grid;place-items:center;border:1px solid #f1d795;border-radius:999px;background:#202b25;color:#fff0c3;font:700 9px/1 'DM Sans','Noto Serif SC',sans-serif;box-shadow:0 2px 4px #000a}
 .tile-flight.is-delayed{visibility:hidden}

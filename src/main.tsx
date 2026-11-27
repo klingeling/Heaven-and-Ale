@@ -1564,9 +1564,23 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
       for (const [order, item] of items.entries()) {
         const sourceRect = item.source.getBoundingClientRect(), targetRect = item.target.getBoundingClientRect();
         if (sourceRect.width < 2 || sourceRect.height < 2 || targetRect.width < 2 || targetRect.height < 2) continue;
-        const sourceWidth = item.kind === 'resource' ? sourceRect.height * .8660254 : sourceRect.width;
-        const from = { left: sourceRect.left + (sourceRect.width - sourceWidth) / 2, top: sourceRect.top, width: sourceWidth, height: sourceRect.height };
-        const to = { left: targetRect.left, top: targetRect.top, width: targetRect.width, height: targetRect.height };
+        const aspect = item.kind === 'resource' ? .8660254 : 1;
+        const fromHeight = Math.min(sourceRect.height, sourceRect.width / aspect);
+        const fromWidth = fromHeight * aspect;
+        const from = {
+          left: sourceRect.left + sourceRect.width / 2 - fromWidth / 2,
+          top: sourceRect.top + sourceRect.height / 2 - fromHeight / 2,
+          width: fromWidth,
+          height: fromHeight,
+        };
+        const toHeight = Math.min(targetRect.height, targetRect.width / aspect);
+        const toWidth = toHeight * aspect;
+        const to = {
+          left: targetRect.left + targetRect.width / 2 - toWidth / 2,
+          top: targetRect.top + targetRect.height / 2 - toHeight / 2,
+          width: toWidth,
+          height: toHeight,
+        };
         const startX = from.left + from.width / 2, startY = from.top + from.height / 2;
         const endX = to.left + to.width / 2, endY = to.top + to.height / 2;
         const arc = Math.min(76, Math.max(22, Math.hypot(endX - startX, endY - startY) * .1));
@@ -1580,7 +1594,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
         startPieceFlightFromRects('tile-back', from, to, {
           tile: item.tile,
           targetTrackIndex: item.trackIndex,
-          scaleX: to.width / from.width,
+          scaleX: to.height / from.height,
           scaleY: to.height / from.height,
           pathPoints,
           delayMs: order * 240,

@@ -2345,18 +2345,17 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
   // Keep every player's board mounted; selected board goes first for legacy
   // animation lookups that still use an unscoped selector.
   const boardViewOrder = [viewingPlayerIndex, ...G.players.map((_, index) => index).filter(index => index !== viewingPlayerIndex)];
-  // The counters represent the physical supply piles, not only tiles scheduled
-  // for this player-count's remaining rounds. Each resource tier has 50 tiles;
-  // each monk tier has 12. Anything already dealt to the board has left supply.
+  // Resource counters show physical stock. Monk counters show the next
+  // undealt batch for each tier: each active round pile contains four monks.
   const dealtResources = G.resources.flat();
-  const dealtMonks = G.monks.flat();
   const remainingResourcesByTier = {
     I: Math.max(0, 50 - dealtResources.filter(tile => tile.tier === 'I').length),
     II: Math.max(0, 50 - dealtResources.filter(tile => tile.tier === 'II').length),
   };
+  const futureMonkPiles = G.monkDecks.slice(G.round);
   const remainingMonksByTier = {
-    I: Math.max(0, 12 - dealtMonks.filter(tile => tile.tier === 'I').length),
-    II: Math.max(0, 12 - dealtMonks.filter(tile => tile.tier === 'II').length),
+    I: futureMonkPiles.some(pile => pile[0]?.tier === 'I') ? 4 : 0,
+    II: futureMonkPiles.some(pile => pile[0]?.tier === 'II') ? 4 : 0,
   };
   const placeScoreFromBoard = (index: number) => {
     if (!canControlTurn || !action || action.baseDone || action.type !== 'score') return;

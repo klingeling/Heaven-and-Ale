@@ -214,9 +214,6 @@ function makeLocalGame(_bots: number[], names: string[], expansionEnabled = fals
 function App() {
   const initialGameNumber = /^\/game\/(\d+)\/?$/.exec(window.location.pathname)?.[1] || '';
   const [screen, setScreen] = useState<'home' | 'new-game' | 'waiting' | 'game' | 'route-loading' | 'joining-room'>(() => initialGameNumber ? 'route-loading' : window.location.pathname.replace(/\/$/, '') === '/new_game' ? 'new-game' : 'home');
-  useLayoutEffect(() => {
-    if (screen === 'game') window.scrollTo(0, 0);
-  }, [screen]);
   const [routeGameNumber, setRouteGameNumber] = useState(initialGameNumber);
   const [routeResolvedMatchID, setRouteResolvedMatchID] = useState('');
   const [routeRoomPreview, setRouteRoomPreview] = useState<RouteRoomPreview | null>(null);
@@ -230,6 +227,27 @@ function App() {
   const [authReady, setAuthReady] = useState(!supabaseConfigured);
   const [client, setClient] = useState<AnyClient | null>(null);
   const [snapshot, setSnapshot] = useState<any>(null);
+  useLayoutEffect(() => {
+    if (screen !== 'game' || !client) return;
+    let secondFrame = 0;
+    const resetScroll = () => {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+    };
+    resetScroll();
+    const firstFrame = window.requestAnimationFrame(() => {
+      resetScroll();
+      secondFrame = window.requestAnimationFrame(resetScroll);
+    });
+    const settleTimer = window.setTimeout(resetScroll, 120);
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+      window.clearTimeout(settleTimer);
+    };
+  }, [screen, client]);
   const [replayFrameSeed, setReplayFrameSeed] = useState<ReplayFrame[]>([]);
   const [playerCount, setPlayerCount] = useState(2);
   const [botSeats, setBotSeats] = useState<number[]>([]);

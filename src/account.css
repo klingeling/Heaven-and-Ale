@@ -61,6 +61,15 @@
 .new-game-heading h2{font-family:var(--serif);font-size:25px;color:#f1e6ce;margin:5px 0}
 .new-game-heading p{font-size:12px;color:#b8b9ac;margin:0}
 .new-game-setup .setup-grid{max-width:none;grid-template-columns:repeat(2,minmax(0,1fr))}
+.setup-card .setup-choice-group{min-width:0;margin-top:10px}
+.setup-card .setup-choice-label{display:block;color:#d2cbb8;font-size:10px;letter-spacing:.04em}
+.setup-choice-options{display:flex;gap:3px;min-width:0;margin-top:6px;padding:2px;border:1px solid #475447;border-radius:4px;background:#17241e}
+.setup-choice-options button{flex:1;min-width:0;min-height:31px;padding:5px 8px;border:0;border-radius:3px;background:transparent;color:#aaa99b;font-size:10px;line-height:1.3;white-space:nowrap}
+.setup-choice-options button:hover{color:#f0dfb6;background:rgba(255,255,255,.05)}
+.setup-choice-options button.selected{background:#625537;color:#fff0c5;box-shadow:0 1px 4px #0007}
+.online-create-options{align-items:start}
+.online-create-options .setup-choice-group{margin-top:10px}
+.online-create-options .setup-choice-options button{padding-right:4px;padding-left:4px;font-size:9px}
 .profile-password-fields{margin-top:22px;padding-top:17px;border-top:1px solid rgba(225,215,188,.14)}
 .profile-password-fields>b{font-family:var(--serif);font-size:15px;color:#ead9b3}
 .profile-password-fields .btn{width:100%;margin-top:6px}

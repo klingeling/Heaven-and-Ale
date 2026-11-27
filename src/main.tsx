@@ -1210,13 +1210,37 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
   useEffect(() => { if (G.phase === 'finished') setShowFinalScore(true); }, [G.phase]);
   const [toast, setToast] = useState('');
   const [botSearchStatus, setBotSearchStatus] = useState<{ playerID: number; iterations: number } | null>(null);
+  const [displayedBotSearchStatus, setDisplayedBotSearchStatus] = useState<{ playerID: number; iterations: number } | null>(null);
   const onBotSearchUpdateRef = React.useRef(onBotSearchUpdate);
   const lastBotStatusRef = React.useRef<{ playerID: number; iterations: number } | null>(null);
   const lastBotStatusSyncRef = React.useRef(0);
+  const botProgressTargetRef = React.useRef<{ playerID: number; iterations: number } | null>(null);
+  const botProgressTimerRef = React.useRef<number | null>(null);
   useEffect(() => { onBotSearchUpdateRef.current = onBotSearchUpdate; }, [onBotSearchUpdate]);
   const reportBotThinking = React.useCallback((status: { playerID: number; iterations: number } | null) => {
     setBotSearchStatus(status);
-    if (status) lastBotStatusRef.current = status;
+    if (status) {
+      lastBotStatusRef.current = status;
+      botProgressTargetRef.current = status;
+      setDisplayedBotSearchStatus(current => current?.playerID === status.playerID
+        ? current
+        : { playerID: status.playerID, iterations: 0 });
+      if (botProgressTimerRef.current === null) {
+        botProgressTimerRef.current = window.setInterval(() => {
+          const target = botProgressTargetRef.current;
+          if (!target) return;
+          setDisplayedBotSearchStatus(current => {
+            if (!current || current.playerID !== target.playerID || current.iterations >= target.iterations) return current;
+            return { playerID: current.playerID, iterations: current.iterations + 1 };
+          });
+        }, 45);
+      }
+    } else {
+      botProgressTargetRef.current = null;
+      if (botProgressTimerRef.current !== null) window.clearInterval(botProgressTimerRef.current);
+      botProgressTimerRef.current = null;
+      setDisplayedBotSearchStatus(null);
+    }
     const now = Date.now();
     if (status || lastBotStatusRef.current) {
       const last = lastBotStatusRef.current;
@@ -1225,6 +1249,9 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
         onBotSearchUpdateRef.current({ playerID: last.playerID, iterations: status?.iterations ?? last.iterations, thinking: !!status, updatedAt: now });
       }
     }
+  }, []);
+  useEffect(() => () => {
+    if (botProgressTimerRef.current !== null) window.clearInterval(botProgressTimerRef.current);
   }, []);
   const [viewingPlayerIndex, setViewingPlayerIndex] = useState(ownPlayerIndex);
   const deferredAutoViewRef = React.useRef<number | null>(null);
@@ -1280,7 +1307,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
   const activeSeat = Number(ctx.currentPlayer);
   const isBotTurn = !isReplaying && botSeats.includes(activeSeat) && liveG.phase !== 'finished';
   const sharedActiveBotSearch = sharedBotSearches.find(search => search.playerID === activeSeat && Date.now() - search.updatedAt < 12000);
-  const activeBotSearch = botSearchStatus?.playerID === activeSeat ? botSearchStatus : sharedActiveBotSearch?.thinking ? sharedActiveBotSearch : undefined;
+  const activeBotSearch = displayedBotSearchStatus?.playerID === activeSeat ? displayedBotSearchStatus : sharedActiveBotSearch?.thinking ? sharedActiveBotSearch : undefined;
   const canControlTurn = !isReplaying && ownsCurrentTurn && !isBotTurn && !onlineVoteState.passed;
   const isExpansionStoreSetup = G.phase === 'setup' && G.setupStage === 'expansion-stores' && !!G.expansion;
   const activeExpansionBoard = G.expansion?.players[activeSeat];
@@ -2418,7 +2445,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
       </section>
       <aside className={`right-rail ${!isViewingOwn ? 'is-inspecting-opponent' : ''}`}><div className="garden-heading"><div><h2>{me.name}的修道院</h2>{!isViewingOwn && <small className="inspection-hint">{isSpectator ? '旁观视角 · 只读' : '正在查看对手版图 · 只读'}</small>}</div><div className="garden-legend"></div></div><div className="player-board-cache">{boardViewOrder.map(boardPlayerIndex => { const boardPlayer = G.players[boardPlayerIndex]; const visible = boardPlayerIndex === viewingPlayerIndex; const boardFlights = pieceFlights.filter(flight => flight.playerIndex === boardPlayerIndex); const boardCargoPlacement = visible ? expansionBoardCargoPlacement : undefined; const expansionPlayerBoard = G.expansionEnabled ? G.expansion?.players[boardPlayerIndex] : undefined; return <div key={boardPlayerIndex} className={`player-board-cache-item ${visible ? 'is-visible' : 'is-cached'}`} aria-hidden={!visible}><div className={`garden-board-pair ${G.expansionEnabled && G.expansion ? 'has-expansion' : ''}`}>{G.expansionEnabled && G.expansion && <div className="expansion-board-reserved"><CachedExpansionTransportBoard board={G.expansion.players[boardPlayerIndex]} color={boardPlayer.color} playerIndex={boardPlayerIndex} pieceFlights={boardFlights} storeEffectLabels={expansionStoreEffects} cargoPlacement={boardCargoPlacement} /></div>}<div className="garden-board-reserved"><CachedGarden player={boardPlayer} interactionKey={visible ? `${state._stateID}:${selectedScoreCategory}:${selectedScoreOption}:${selectedExpansionStoreId ?? ''}` : 'inactive'} playerIndex={boardPlayerIndex} pieceFlights={boardFlights} selectedTile={visible && isViewingCurrent && canPlace ? selectedTile : undefined} sourceIndex={visible ? currentActionSpace?.sourceIndex : undefined} coins={boardPlayer.coins} canPlace={visible && isViewingCurrent && canPlace} activePlayer={boardPlayer} shedChoice={visible && isViewingCurrent && canControlTurn && !expansionStorePrompt ? activeShedChoice : undefined} flightScoreIndex={pieceFlights.find(flight => flight.kind === 'disc' && !flight.landed && flight.playerIndex === boardPlayerIndex)?.scoreIndex} scoreXValue={productionScoreMarkerValue(boardPlayer)} scoreTargetIndices={visible ? scoreTargetIndices : []} onScoreTarget={placeScoreFromBoard} onShedToggle={(i) => { if (visible && canControlTurn && isViewingCurrent) moves.toggleShedChoice(i); }} onSelect={(i) => { if (visible && canControlTurn && isViewingCurrent) placeTile(i); }} cells={garden} storeTiles={G.expansionEnabled ? G.expansion?.players[boardPlayerIndex]?.hutStoreTiles : undefined} storeSetup={visible && canConfigureExpansionStores} selectedStoreId={visible ? selectedExpansionStoreId : null} storeSetupReady={G.expansion?.storeSetupReady?.[boardPlayerIndex] ?? false} onStoreTarget={placeExpansionStoreTarget} /></div></div></div>; })}</div><div className="rail-heading">特权卡 · 点击弃置可得3个钱币</div><div className="privileges">{['A', 'B', 'C', 'D', 'E'].filter(card => !me.privilegePairs.includes(card)).map(card => { const inHand = me.privileges.includes(card); const earned = me.privilegePairs.includes(card); const blocked = G.phase !== 'play' || !canControlTurn || !isViewingCurrent || (!!G.confirmationKind && G.confirmationKind !== 'turn') || !!privilegePrompt; return <div className={`privilege ${inHand ? '' : 'used'}`} data-privilege-card={card} key={card}><img src={`/Images/privilege_card_front_${card}.png`} alt={`特权卡 ${card}`} />{inHand ? <button disabled={blocked} onClick={() => { if (blocked || G.phase !== 'play') return; animatePrivilegeCoins(currentPlayerIndex, card, 3); moves.discardPrivilege(card); }}>弃置 +3</button> : <span>{earned ? '已放置' : '已弃置'}</span>}</div>; })}</div><div className="rail-heading">已领取酒桶 <span className="count">{me.claimedBarrels.length}</span></div><div className="barrel-strip">{me.claimedBarrels.map((b, i) => <span key={`${b.id}-${i}`} className={`barrel-claimed-item ${b.size}`} style={{ visibility: pieceFlights.some(flight => flight.kind === 'barrel' && !flight.landed && flight.playerIndex === viewingPlayerIndex && flight.barrelId === b.id && flight.barrelSize === b.size) ? 'hidden' : 'visible' }} title={`酒桶${b.id}：${barrelGoals[b.id - 1]} ${b.size === 'large' ? '大酒桶，4分' : '小酒桶，2分'}`}><BarrelGoalArt id={b.id} className="claimed-barrel-art" /><small>{b.size === 'large' ? '大 · 4分' : '小 · 2分'}</small></span>)}</div><div className="score-summary"><span>当前钱币</span><b><i className="player-coin-icon" aria-label="钱币" /> {me.coins}</b><span>酒桶计分</span><b>{viewingScoring.barrelScore + viewingScoring.expansionBarrelScore} 分</b></div></aside>
       <aside className="far-right-rail"><div className="rail-heading">玩家信息 · 点击查看版图</div><div className="player-roster">{rosterOrder.map(i => { const p = G.players[i];
-        const scoring = scoreBreakdown(p, G.expansionEnabled ? G.expansion?.players[i] : undefined); const searchStatus = botSearchStatus?.playerID === i ? botSearchStatus : sharedBotSearches.find(status => status.playerID === i && status.thinking && Date.now() - status.updatedAt < 12000); return <div className={`player-info-unit ${i === viewingPlayerIndex ? 'is-viewing' : ''}`} data-player-index={i} key={i} role="button" tabIndex={0} aria-label={`查看${p.name}的玩家版图`} onClick={() => setViewingPlayerIndex(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingPlayerIndex(i); } }}>
+        const scoring = scoreBreakdown(p, G.expansionEnabled ? G.expansion?.players[i] : undefined); const searchStatus = displayedBotSearchStatus?.playerID === i ? displayedBotSearchStatus : sharedBotSearches.find(status => status.playerID === i && status.thinking && Date.now() - status.updatedAt < 12000); return <div className={`player-info-unit ${i === viewingPlayerIndex ? 'is-viewing' : ''}`} data-player-index={i} key={i} role="button" tabIndex={0} aria-label={`查看${p.name}的玩家版图`} onClick={() => setViewingPlayerIndex(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingPlayerIndex(i); } }}>
           <div className={`player-card ${i === Number(ctx.currentPlayer) ? 'is-turn' : ''} ${p.retired ? 'is-done' : ''}`}><div className={`avatar ${p.color}`} title={`首轮第 ${firstOrder.indexOf(i) + 1} 个行动`} aria-label={`首轮行动顺序第 ${firstOrder.indexOf(i) + 1} 位`}>{firstOrder.indexOf(i) + 1}</div><div className="player-name"><span className="player-name-score"><span className="player-display-name">{p.name}</span>{G.phase === 'play' && i === G.startPlayer && <span className="round-first-player-icon" title="本轮先手" aria-label="本轮先手"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 14V2m1 1h8l-2.4 3L12 9H4" /></svg></span>}{!isSpectator && i === ownPlayerIndex && !botSeats.includes(i) && <b className="self-player-badge">你</b>}<b title={liveScoreTitle(p, scoring, G.expansionEnabled ? G.expansion?.players[i] : undefined)}>★ {scoring.total}</b></span><small>{botSeats.includes(i) ? `${botDifficulty === 'expert' ? '专家' : '普通'}机器人${i === Number(ctx.currentPlayer) ? searchStatus ? ` · 搜索中 ${searchStatus.iterations} 次` : ' · 正在行动' : ''}` : p.retired ? '本轮已休息' : i === Number(ctx.currentPlayer) ? '正在行动' : '等待中'}</small></div><div className="money"><i className="player-coin-icon" aria-label="钱币" /> {p.coins}</div></div>
           <div className="player-live-details" title={`按当前状态预演终局：资源归并后最低为 ${scoring.minResource}，生产 ${scoring.productionScore} 分；酒桶 ${scoring.barrelScore} 分；起始奖励 ${scoring.startBonus} 分。`}>
             <div className="player-info-table">

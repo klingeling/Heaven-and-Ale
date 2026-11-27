@@ -15,7 +15,7 @@ import './readable-text.css';
 type AnyClient = ReturnType<typeof Client>;
 type MotionPoint = { x: number; y: number };
 type MovementTrail = { id: string; kind: PieceFlight['kind']; playerIndex?: number; resourceKey?: Resource; pathPoints: MotionPoint[]; durationMs: number; started: boolean; scrollX: number; scrollY: number };
-type PieceFlight = { id: string; kind: 'tile' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; targetStorageExtensionIndex?: number; targetUnlockStorageIndex?: number; targetBreweryIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean; landed?: boolean };
+type PieceFlight = { id: string; kind: 'tile' | 'tile-back' | 'disc' | 'barrel' | 'coin' | 'meeple' | 'resource-marker' | 'brewer-marker' | 'privilege-card' | 'store-card' | 'expansion-cargo' | 'cart' | 'die'; tile?: Tile; card?: string; storeId?: number; pairIndex?: number; sourceIndex?: number; targetIndex?: number; targetStorageExtensionIndex?: number; targetUnlockStorageIndex?: number; targetBreweryIndex?: number; scoreIndex?: number; targetTrackIndex?: number; targetStartSlot?: number; targetRouteIndex?: number; sourceStorageIndex?: number; targetStorageIndex?: number; sourceTemporaryStorage?: boolean; targetTemporaryStorage?: boolean; cargoKind?: ExpansionCargo; cargoCount?: number; dieValue?: number; playerColor?: string; playerName?: string; resourceKey?: Resource; playerIndex?: number; barrelId?: number; barrelSize?: 'large' | 'small'; left: number; top: number; width: number; height: number; dx: number; dy: number; scale: number; delayMs?: number; durationMs?: number; pathPoints?: MotionPoint[]; started: boolean; landed?: boolean };
 type ReplayViewState = Pick<AleState, 'players' | 'round' | 'maxRounds' | 'resources' | 'monks' | 'scores' | 'barrels' | 'phase' | 'setupStage' | 'pending' | 'startPlayer' | 'firstTurnAfterSetup' | 'startChoice' | 'expansionEnabled' | 'expansion' | 'playerOrder' | 'firstRoundOrder' | 'logCycle'>;
 type ReplayFrame = { id: string; logStart: number; logEnd: number; logLines?: string[]; playerIndex: number; turn?: number; state: ReplayViewState };
 const replayFrameLimit = 500;
@@ -1508,6 +1508,42 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     const total = handoffDelay + 140;
     return total;
   };
+  const dealtSupplySnapshotRef = React.useRef<{ round: number; resources: string[]; monks: string[] } | null>(null);
+  useLayoutEffect(() => {
+    const resourceIds = liveG.resources.flat().map(tile => tile.id);
+    const monkIds = liveG.monks.flat().map(tile => tile.id);
+    const previous = dealtSupplySnapshotRef.current;
+    dealtSupplySnapshotRef.current = { round: liveG.round, resources: resourceIds, monks: monkIds };
+    if (isReplaying || liveG.phase === 'finished') return;
+
+    const animateDeal = (tile: Tile, kind: 'resource' | 'monk', sourceIndex: number, order: number) => {
+      const source = document.querySelector<HTMLElement>(kind === 'resource'
+        ? `.resource-deck-counter[data-tier="${tile.tier ?? 'I'}"]`
+        : `.monk-deck-tier[data-tier="${tile.tier ?? 'I'}"]`);
+      const trackIndex = liveG.track.findIndex(space => space.type === kind && space.sourceIndex === sourceIndex);
+      const target = trackIndex >= 0 ? document.querySelector<HTMLElement>(`[data-track-index="${trackIndex}"]`) : null;
+      const sourceRect = source?.getBoundingClientRect(), targetRect = target?.getBoundingClientRect();
+      if (!sourceRect || !targetRect || sourceRect.width < 2 || targetRect.width < 2) return;
+      const width = Math.max(18, Math.min(kind === 'monk' ? 30 : 34, targetRect.width * .46));
+      const height = kind === 'monk' ? width : width / .8660254;
+      const from = { left: sourceRect.left + (sourceRect.width - width) / 2, top: sourceRect.top + (sourceRect.height - height) / 2, width, height };
+      const to = { left: targetRect.left + (targetRect.width - width) / 2, top: targetRect.top + (targetRect.height - height) / 2, width, height };
+      startPieceFlightFromRects('tile-back', from, to, { tile, targetTrackIndex: trackIndex, delayMs: order * 28 });
+    };
+
+    if (!previous) {
+      if (liveG.round !== 1 || Number(state._stateID) !== 0) return;
+      let order = 0;
+      liveG.resources.forEach((pile, sourceIndex) => pile.forEach(tile => animateDeal(tile, 'resource', sourceIndex, order++)));
+      liveG.monks.forEach((pile, sourceIndex) => pile.forEach(tile => animateDeal(tile, 'monk', sourceIndex, order++)));
+      return;
+    }
+    if (liveG.round <= previous.round) return;
+    const oldResources = new Set(previous.resources), oldMonks = new Set(previous.monks);
+    let order = 0;
+    liveG.resources.forEach((pile, sourceIndex) => pile.filter(tile => !oldResources.has(tile.id)).forEach(tile => animateDeal(tile, 'resource', sourceIndex, order++)));
+    liveG.monks.forEach((pile, sourceIndex) => pile.filter(tile => !oldMonks.has(tile.id)).forEach(tile => animateDeal(tile, 'monk', sourceIndex, order++)));
+  }, [state._stateID, liveG.round, isReplaying]);
   const animateMeepleMove = (playerIndex: number, targetTrackIndex?: number, targetStartSlot?: number) => {
     const player = G.players[playerIndex];
     if (!player || (player.position < 0 && player.startSlot === null)) return 0;
@@ -2309,6 +2345,19 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
   // Keep every player's board mounted; selected board goes first for legacy
   // animation lookups that still use an unscoped selector.
   const boardViewOrder = [viewingPlayerIndex, ...G.players.map((_, index) => index).filter(index => index !== viewingPlayerIndex)];
+  // The counters represent the physical supply piles, not only tiles scheduled
+  // for this player-count's remaining rounds. Each resource tier has 50 tiles;
+  // each monk tier has 12. Anything already dealt to the board has left supply.
+  const dealtResources = G.resources.flat();
+  const dealtMonks = G.monks.flat();
+  const remainingResourcesByTier = {
+    I: Math.max(0, 50 - dealtResources.filter(tile => tile.tier === 'I').length),
+    II: Math.max(0, 50 - dealtResources.filter(tile => tile.tier === 'II').length),
+  };
+  const remainingMonksByTier = {
+    I: Math.max(0, 12 - dealtMonks.filter(tile => tile.tier === 'I').length),
+    II: Math.max(0, 12 - dealtMonks.filter(tile => tile.tier === 'II').length),
+  };
   const placeScoreFromBoard = (index: number) => {
     if (!canControlTurn || !action || action.baseDone || action.type !== 'score') return;
     if (index === 0) {
@@ -2374,7 +2423,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     })}
     {pieceFlights.map(flight => {
       return <React.Fragment key={flight.id}>
-        <div data-piece-flight-id={flight.id} className={`tile-flight ${flight.landed ? 'is-handoff' : ''} ${!flight.started && (flight.delayMs ?? 0) > 0 ? 'is-delayed' : ''} ${flight.started ? flight.pathPoints ? 'path-moving' : 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, ['--flight-duration' as any]: `${flight.durationMs ?? 980}ms`, backgroundPosition: flight.kind === 'resource-marker' ? trackMarkerSpritePosition(flight.resourceKey!) : flight.kind === 'brewer-marker' ? meepleSpritePosition(flight.playerColor || 'black') : flight.kind === 'meeple' ? meepleSpritePosition(flight.playerColor || 'black') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <BarrelGoalArt id={flight.barrelId || 0} /> : flight.kind === 'expansion-cargo' ? flight.cargoKind === 'barrel' ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="" /> : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="" /> : flight.kind === 'cart' ? <span className="transport-cart-marker flight-cart-marker">{(flight.cargoCount ?? 0) > 0 && <span className="cart-cargo-stack">{Array.from({ length: flight.cargoCount ?? 0 }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="" /></span> : flight.kind === 'die' ? <DiceFace value={flight.dieValue ?? 1} /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : flight.kind === 'store-card' ? <img src={`/Images/store_${flight.storeId}.png`} alt="" /> : null}</div>
+        <div data-piece-flight-id={flight.id} className={`tile-flight ${flight.landed ? 'is-handoff' : ''} ${!flight.started && (flight.delayMs ?? 0) > 0 ? 'is-delayed' : ''} ${flight.started ? flight.pathPoints ? 'path-moving' : 'is-moving' : ''} flight-${flight.kind} ${flight.kind === 'meeple' ? 'player-meeple' : flight.kind === 'resource-marker' ? 'production-marker' : flight.kind === 'brewer-marker' ? 'brewer-marker-art' : ''}`} aria-hidden="true" style={{ left: flight.left, top: flight.top, width: flight.width, height: flight.height, ['--tile-flight-x' as any]: `${flight.dx}px`, ['--tile-flight-y' as any]: `${flight.dy}px`, ['--tile-flight-scale' as any]: flight.scale, ['--flight-delay' as any]: `${flight.delayMs ?? 0}ms`, ['--flight-duration' as any]: `${flight.durationMs ?? 980}ms`, backgroundPosition: flight.kind === 'resource-marker' ? trackMarkerSpritePosition(flight.resourceKey!) : flight.kind === 'brewer-marker' ? meepleSpritePosition(flight.playerColor || 'black') : flight.kind === 'meeple' ? meepleSpritePosition(flight.playerColor || 'black') : undefined }}>{flight.kind === 'tile' && flight.tile ? <TileFace tile={flight.tile} /> : flight.kind === 'tile-back' && flight.tile ? <img className={flight.tile.kind === 'resource' ? 'flight-resource-back' : 'flight-monk-back'} src={flight.tile.kind === 'resource' ? `/Images/back_${flight.tile.tier ?? 'I'}.png` : `/Images/monk_back_${flight.tile.tier ?? 'I'}.png`} alt="" /> : flight.kind === 'disc' ? <img src="/Images/scoring_disc.png" alt="" /> : flight.kind === 'coin' ? <i className="player-coin-icon" /> : flight.kind === 'barrel' ? <BarrelGoalArt id={flight.barrelId || 0} /> : flight.kind === 'expansion-cargo' ? flight.cargoKind === 'barrel' ? <img className="transport-cargo-token barrel-icon" src="/Images/barrel_cargo_icon.png" alt="" /> : <img className="transport-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="" /> : flight.kind === 'cart' ? <span className="transport-cart-marker flight-cart-marker">{(flight.cargoCount ?? 0) > 0 && <span className="cart-cargo-stack">{Array.from({ length: flight.cargoCount ?? 0 }, (_, index) => <img key={index} src="/Images/barrel_cargo_icon.png" alt="" />)}</span>}<img className="cart-horse-icon" src="/Images/cart_horse_icon.png" alt="" /></span> : flight.kind === 'die' ? <DiceFace value={flight.dieValue ?? 1} /> : flight.kind === 'privilege-card' ? <img src={`/Images/privilege_card_front_${flight.card}.png`} alt="" /> : flight.kind === 'store-card' ? <img src={`/Images/store_${flight.storeId}.png`} alt="" /> : null}</div>
       </React.Fragment>;
     })}
     <header className="table-header"><div className="brand-mark small"><img src="/Images/ha-cover.png" alt="Heaven & Ale" /></div><div className="table-title"><b>天堂与美酒</b><small>{roomInfo}{roomCode && ` · 对局 ${roomCode}`}</small></div>{isSpectator && <span className="spectator-badge">旁观中</span>}{G.expansionEnabled && <span className="expansion-room-badge">含扩展包</span>}<div className="round-chip">第 {G.round} / {G.maxRounds} 轮</div>{G.phase === 'finished' && <button className="icon-btn final-score-reopen" onClick={() => setShowFinalScore(true)}>最终计分</button>}<button className="icon-btn" onClick={() => setShowRules(true)}>规则</button><button className="icon-btn" onClick={onExit}>回到主页</button>{G.phase !== 'finished' && !isLocal && !isSpectator && roomCode && !onlineVoteState.passed && <button className="icon-btn abandon-vote-button" onClick={onVoteToAbandon}>{onlineVoteState.votes.includes(Number(clientPlayerID)) ? "撤回放弃票" : "投票放弃"} {onlineVoteState.votes.length}/{requiredAbandonVotes(G.players.length, botSeats)}</button>}{G.phase !== 'finished' && isLocal && <button className="icon-btn abandon-btn" onClick={() => setShowAbandonConfirm(true)}>放弃游戏</button>}</header>
@@ -2384,10 +2433,13 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     {G.phase === 'finished' && showFinalScore && <GameOverScoreModal game={G} gameover={gameover} winnerNames={winnerIds.map(id => G.players[Number(id)]?.name).filter((name): name is string => !!name)} onExit={onExit} onClose={() => setShowFinalScore(false)} />}
     <div className={`game-layout ${isBotTurn ? 'bot-thinking' : ''} ${isReplaying ? 'is-replaying' : ''}`}>
       <section className="center-play"><div className="board-heading"><div><h2>主游戏版图</h2></div>{isBotTurn ? <span className="bot-thinking-pill"><i className="bot-thinking-dot" />{G.players[activeSeat]?.name} 正在思考 · 搜索 {activeBotSearch?.iterations ?? 0} 次</span> : <span className="board-tip"></span>}</div>
-        <div className="main-board-wrap"><img src="/Images/main_board_clear.jpg" alt="天堂与美酒主版图" className="main-board-art" /><div className="track-overlay">
+        <div className="main-board-wrap"><img src="/Images/main_board_clear.jpg" alt="天堂与美酒主版图" className="main-board-art" /><div className="deck-supply-counters" aria-label="本局剩余资源与修士">
+          {(['I', 'II'] as const).map(tier => <div key={`resource-deck-${tier}`} className={`resource-deck-counter resource-deck-${tier}`} data-tier={tier} title={`未分发资源 ${tier}：${remainingResourcesByTier[tier]} 张`} aria-label={`未分发资源 ${tier} ${remainingResourcesByTier[tier]} 张`}><img src={`/Images/back_${tier}.png`} alt={`资源牌背 ${tier}`} /><b>{remainingResourcesByTier[tier]}</b></div>)}
+          <div className="monk-deck-counter" title={`未分发修士：I ${remainingMonksByTier.I} 个，II ${remainingMonksByTier.II} 个`} aria-label={`未分发修士 I ${remainingMonksByTier.I} 个、II ${remainingMonksByTier.II} 个`}><div className="monk-deck-counter-icons">{(['I', 'II'] as const).map(tier => <span key={`monk-deck-${tier}`} className="monk-deck-tier" data-tier={tier}><img src={`/Images/monk_back_${tier}.png`} alt={`修士牌背 ${tier}`} /><b>{remainingMonksByTier[tier]}</b></span>)}</div></div>
+        </div><div className="track-overlay">
           {G.track.map((space, i) => {
             const occupants = G.players.filter((p, playerIndex) => p.position === i && Number(G.startChoice?.player ?? -1) !== playerIndex); const here = canMove && i > currentPlayer.position; const stock = space.type === 'resource' ? G.resources[space.sourceIndex ?? -1] : space.type === 'monk' ? G.monks[space.sourceIndex ?? -1] : []; const supplySpace = space.type === 'resource' || space.type === 'monk'; const good = here && canMoveTo(G, currentPlayer, i); const cargo = G.expansionEnabled ? G.expansion?.cargoByTrackSpace[i] ?? [] : []; const dieFlyingTo = pieceFlights.some(flight => flight.kind === 'die' && !flight.landed && flight.targetTrackIndex === i); const dieHere = G.expansionEnabled && G.expansion?.cartDieSpace === i && !dieFlyingTo; const hasExpansionIndicators = G.expansionEnabled && (cargo.length > 0 || dieHere); const x = (space.x / 1904) * 100, y = (space.y / 1176) * 100; return <button key={i} data-track-index={i} disabled={!good} onClick={() => trackMove(i)} style={{ left: `${x}%`, top: `${y}%` }} className={`track-space ${space.type} ${good ? 'available-space' : ''} ${currentPlayer.position === i ? 'current-space' : ''} ${hasExpansionIndicators ? 'has-expansion-indicators' : ''}`} title={`${i + 1} · ${space.label}`}>
-              {space.type === 'score' ? <span className="space-score-discs">{Array.from({ length: G.scores[space.sourceIndex ?? -1] || 0 }, (_, disc) => <img key={disc} data-score-source-index={space.sourceIndex} src="/Images/scoring_disc.png" alt="紫色计分圆片" />)}</span> : supplySpace ? <span className="space-supply">{(stock || []).map(tile => <span key={tile.id} className="space-supply-tile" data-tile-id={tile.id}><TileFace tile={tile} /></span>)}</span> : <span>{space.type === 'barrel' ? '▣' : space.type === 'start' ? '⌂' : '✦'}</span>}
+              {space.type === 'score' ? <span className="space-score-discs">{Array.from({ length: G.scores[space.sourceIndex ?? -1] || 0 }, (_, disc) => <img key={disc} data-score-source-index={space.sourceIndex} src="/Images/scoring_disc.png" alt="紫色计分圆片" />)}</span> : supplySpace ? <span className="space-supply">{(stock || []).map(tile => <span key={tile.id} className="space-supply-tile" data-tile-id={tile.id}>{pieceFlights.some(flight => flight.kind === 'tile-back' && flight.tile?.id === tile.id) ? null : <TileFace tile={tile} />}</span>)}</span> : <span>{space.type === 'barrel' ? '▣' : space.type === 'start' ? '⌂' : '✦'}</span>}
               {!supplySpace && space.type !== 'score' && <small>{space.label}</small>}
               {hasExpansionIndicators && <span className="expansion-track-indicators" title={[...cargo.map(item => item === 'barrel' ? '桶装酒' : '干草'), ...(dieHere ? [`骰子 ${G.expansion?.cartDieValue} 点`] : [])].join('、')}>
                 {cargo.map((kind, cargoIndex) => kind === 'barrel' ? <img key={`barrel-${cargoIndex}`} className="expansion-track-cargo-token barrel" src="/Images/barrel_cargo_icon.png" alt="桶装酒" /> : <img key={`straw-${cargoIndex}`} className="expansion-cargo-token straw-icon" src="/Images/straw_cube_icon.png" alt="干草" />)}

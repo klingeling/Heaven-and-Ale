@@ -1519,7 +1519,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
     const animateDeal = (tile: Tile, kind: 'resource' | 'monk', sourceIndex: number, order: number) => {
       const source = document.querySelector<HTMLElement>(kind === 'resource'
         ? `.resource-deck-counter[data-tier="${tile.tier ?? 'I'}"]`
-        : `.monk-deck-tier[data-tier="${tile.tier ?? 'I'}"]`);
+        : `.monk-round-pile[data-round="${liveG.round}"][data-source="true"]`);
       const trackIndex = liveG.track.findIndex(space => space.type === kind && space.sourceIndex === sourceIndex);
       const target = trackIndex >= 0 ? document.querySelector<HTMLElement>(`[data-track-index="${trackIndex}"]`) : null;
       const sourceRect = source?.getBoundingClientRect(), targetRect = target?.getBoundingClientRect();
@@ -2345,17 +2345,13 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
   // Keep every player's board mounted; selected board goes first for legacy
   // animation lookups that still use an unscoped selector.
   const boardViewOrder = [viewingPlayerIndex, ...G.players.map((_, index) => index).filter(index => index !== viewingPlayerIndex)];
-  // Resource counters show physical stock. Monk counters show the next
-  // undealt batch for each tier: each active round pile contains four monks.
+  // Resource counters show physical stock. The six monk spaces are dealt in
+  // order; each future space is one batch of four monks, with the tier set by
+  // the actual round decks used for this player count.
   const dealtResources = G.resources.flat();
   const remainingResourcesByTier = {
     I: Math.max(0, 50 - dealtResources.filter(tile => tile.tier === 'I').length),
     II: Math.max(0, 50 - dealtResources.filter(tile => tile.tier === 'II').length),
-  };
-  const futureMonkPiles = G.monkDecks.slice(G.round);
-  const remainingMonksByTier = {
-    I: futureMonkPiles.some(pile => pile[0]?.tier === 'I') ? 4 : 0,
-    II: futureMonkPiles.some(pile => pile[0]?.tier === 'II') ? 4 : 0,
   };
   const placeScoreFromBoard = (index: number) => {
     if (!canControlTurn || !action || action.baseDone || action.type !== 'score') return;
@@ -2434,7 +2430,22 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
       <section className="center-play"><div className="board-heading"><div><h2>主游戏版图</h2></div>{isBotTurn ? <span className="bot-thinking-pill"><i className="bot-thinking-dot" />{G.players[activeSeat]?.name} 正在思考 · 搜索 {activeBotSearch?.iterations ?? 0} 次</span> : <span className="board-tip"></span>}</div>
         <div className="main-board-wrap"><img src="/Images/main_board_clear.jpg" alt="天堂与美酒主版图" className="main-board-art" /><div className="deck-supply-counters" aria-label="本局剩余资源与修士">
           {(['I', 'II'] as const).map(tier => <div key={`resource-deck-${tier}`} className={`resource-deck-counter resource-deck-${tier}`} data-tier={tier} title={`未分发资源 ${tier}：${remainingResourcesByTier[tier]} 张`} aria-label={`未分发资源 ${tier} ${remainingResourcesByTier[tier]} 张`}><img src={`/Images/back_${tier}.png`} alt={`资源牌背 ${tier}`} /><b>{remainingResourcesByTier[tier]}</b></div>)}
-          <div className="monk-deck-counter" title={`未分发修士：I ${remainingMonksByTier.I} 个，II ${remainingMonksByTier.II} 个`} aria-label={`未分发修士 I ${remainingMonksByTier.I} 个、II ${remainingMonksByTier.II} 个`}><div className="monk-deck-counter-icons">{(['I', 'II'] as const).map(tier => <span key={`monk-deck-${tier}`} className="monk-deck-tier" data-tier={tier}><img src={`/Images/monk_back_${tier}.png`} alt={`修士牌背 ${tier}`} /><b>{remainingMonksByTier[tier]}</b></span>)}</div></div>
+          <div className="monk-round-piles" aria-label="各轮待发修士堆">
+            {Array.from({ length: 6 }, (_, index) => {
+              const pile = G.monkDecks[index];
+              const tier = pile?.[0]?.tier;
+              const round = index + 1;
+              const isCurrentSource = round === G.round && Boolean(tier);
+              const isUndealt = round > G.round && round <= G.maxRounds && Boolean(pile?.length);
+              if (!tier || (!isCurrentSource && !isUndealt)) return <span key={`monk-round-${round}`} className="monk-round-slot" aria-hidden="true" />;
+              return <span key={`monk-round-${round}`} className="monk-round-slot">
+                <span className={`monk-round-pile ${isCurrentSource ? 'is-source' : ''}`} data-round={round} data-tier={tier} data-source={isCurrentSource ? 'true' : undefined} title={isUndealt ? `第 ${round} 轮修士：${pile.length} 个` : undefined} aria-label={isUndealt ? `第 ${round} 轮，${tier} 堆修士 ${pile.length} 个` : undefined}>
+                  <img src={`/Images/monk_back_${tier}.png`} alt={isUndealt ? `${tier} 堆修士` : ''} />
+                  {isUndealt && <b>{pile.length}</b>}
+                </span>
+              </span>;
+            })}
+          </div>
         </div><div className="track-overlay">
           {G.track.map((space, i) => {
             const occupants = G.players.filter((p, playerIndex) => p.position === i && Number(G.startChoice?.player ?? -1) !== playerIndex); const here = canMove && i > currentPlayer.position; const stock = space.type === 'resource' ? G.resources[space.sourceIndex ?? -1] : space.type === 'monk' ? G.monks[space.sourceIndex ?? -1] : []; const supplySpace = space.type === 'resource' || space.type === 'monk'; const good = here && canMoveTo(G, currentPlayer, i); const cargo = G.expansionEnabled ? G.expansion?.cargoByTrackSpace[i] ?? [] : []; const dieFlyingTo = pieceFlights.some(flight => flight.kind === 'die' && !flight.landed && flight.targetTrackIndex === i); const dieHere = G.expansionEnabled && G.expansion?.cartDieSpace === i && !dieFlyingTo; const hasExpansionIndicators = G.expansionEnabled && (cargo.length > 0 || dieHere); const x = (space.x / 1904) * 100, y = (space.y / 1176) * 100; return <button key={i} data-track-index={i} disabled={!good} onClick={() => trackMove(i)} style={{ left: `${x}%`, top: `${y}%` }} className={`track-space ${space.type} ${good ? 'available-space' : ''} ${currentPlayer.position === i ? 'current-space' : ''} ${hasExpansionIndicators ? 'has-expansion-indicators' : ''}`} title={`${i + 1} · ${space.label}`}>

@@ -2440,7 +2440,7 @@ function GameView({ client, state, replayStorageKey, replayFrameSeed, onPublishR
               const isActiveRound = round <= G.maxRounds;
               return <span key={`monk-round-${round}`} className="monk-round-slot">
                 <span className={`monk-round-pile ${isUndealt ? 'has-pile' : 'is-empty'}`} data-round={round} data-tier={tier} data-source={isCurrentSource ? 'true' : undefined} title={isUndealt ? `第 ${round} 轮修士：${pile.length} 个待发` : `第 ${round} 轮${isActiveRound ? '修士已发出' : '本局不使用'}`} aria-label={isUndealt ? `第 ${round} 轮，${tier} 堆修士 ${pile.length} 个` : undefined}>
-                  {isUndealt && <><img src={`/Images/monk_back_${tier}.png`} alt={`${tier} 堆修士`} /><b>{pile.length}</b></>}
+                  {isUndealt ? <><img src={`/Images/monk_back_${tier}.png`} alt={`${tier} 堆修士`} /><b>{pile.length}</b></> : <img src="/Images/monk_back_empty.png" alt="" />}
                 </span>
               </span>;
             })}

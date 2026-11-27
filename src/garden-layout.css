@@ -299,17 +299,17 @@
 .far-right-rail .player-card>.money{grid-column:3;grid-row:2;justify-self:end;margin-left:0;white-space:nowrap}
 .tile-flight{position:fixed;z-index:30;pointer-events:none;transform-origin:center center;filter:drop-shadow(0 3px 6px #000b);will-change:transform}
 .tile-flight.flight-tile-back{display:grid;place-items:center;overflow:visible}
-.tile-flight .flight-resource-back{width:100%;height:100%;object-fit:cover;clip-path:polygon(25% 2%,75% 2%,98% 50%,75% 98%,25% 98%,2% 50%)}
+.tile-flight .flight-resource-back{width:100%;height:100%;object-fit:cover;clip-path:polygon(50% 0%,93.3% 25%,93.3% 75%,50% 100%,6.7% 75%,6.7% 25%)}
 .tile-flight .flight-monk-back{width:100%;height:100%;object-fit:cover;border-radius:50%}
 .deck-supply-counters{position:absolute;inset:0;z-index:3;pointer-events:none}
 .resource-deck-counter{position:absolute;width:clamp(30px,4.2%,58px);aspect-ratio:1;display:grid;place-items:center;filter:drop-shadow(0 2px 3px #000b)}
 .resource-deck-I{left:0%;bottom:0%}
 .resource-deck-II{right:0%;bottom:0%}
-.resource-deck-counter>img{display:block;width:100%;height:100%;object-fit:cover;clip-path:polygon(25% 2%,75% 2%,98% 50%,75% 98%,25% 98%,2% 50%);}
+.resource-deck-counter>img{display:block;width:100%;height:100%;object-fit:cover;clip-path:polygon(50% 0%,93.3% 25%,93.3% 75%,50% 100%,6.7% 75%,6.7% 25%);}
 .resource-deck-counter>b{position:absolute;right:-7px;bottom:-5px;min-width:19px;height:19px;padding:0 4px;display:grid;place-items:center;border:1px solid #f1d795;border-radius:999px;background:#202b25;color:#fff0c3;font:700 11px/1 'DM Sans','Noto Serif SC',sans-serif;box-shadow:0 2px 5px #000a}
-.monk-round-piles{position:absolute;left:32.2%;top:50.4%;width:35.2%;height:10%;transform:translateY(-50%);display:grid;grid-template-columns:repeat(6,minmax(0,1fr));pointer-events:none}
+.monk-round-piles{position:absolute;left:32.2%;top:50.5%;width:35.2%;height:10%;transform:translateY(-50%);display:grid;grid-template-columns:repeat(6,minmax(0,1fr));pointer-events:none}
 .monk-round-slot{position:relative;min-width:0}
-.monk-round-pile{position:absolute;left:50%;top:50%;width:90%;aspect-ratio:1;display:block;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 3px #000b)}
+.monk-round-pile{position:absolute;left:50%;top:50%;width:92%;aspect-ratio:1;display:block;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 3px #000b)}
 .monk-round-pile.is-empty{border-radius:50%}
 .monk-round-pile.is-empty{filter:none}
 .monk-round-pile.is-empty img{filter:saturate(.42) brightness(.76) contrast(.7)}
